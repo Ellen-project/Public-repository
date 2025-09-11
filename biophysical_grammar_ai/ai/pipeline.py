@@ -29,8 +29,45 @@ class Pipeline:
         self.gn.set_embeddings(self.emb)
         tpls=["Hello , and thanks for your message .","Here is a concise answer to your question .","In short , we can explain the steps clearly .","If you prefer , I can provide more detail in the next turn .","From a legal standpoint , the contract should specify scope and remedies .","Clinically , the patient improved after the initial therapy .","The portfolio balances equity exposure with hedges that limit volatility .","The curriculum integrates formative assessment with useful feedback .","A layered control strategy reduces the blast radius of an incident .","The team improved possession by adjusting tempo and spacing .","The pipeline validates data quality before model training ."]
         if not self.gn.load():
-            corpus=[[tok for tok in t.lower().split()] for t in tpls]
-            self.gn.bootstrap_from_corpus(corpus); self.gn.save()
+            print("[Training] No pre-trained grammar found. Starting self-learning...")
+            learning_url = "https://ko.wikipedia.org/wiki/%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5"
+            
+            try:
+                import requests
+                from bs4 import BeautifulSoup
+
+                print(f"[Training] Fetching content from {learning_url}")
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+                }
+                response = requests.get(learning_url, headers=headers)
+                response.raise_for_status() # Raise an exception for bad status codes
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Extract text from the main content area of Wikipedia
+                content_div = soup.find(id='mw-content-text')
+                if content_div:
+                    # Remove tables, nav boxes, etc.
+                    for tag in content_div.find_all(['table', '.navbox']):
+                        tag.decompose()
+                    fetched_text = content_div.get_text(separator=' ', strip=True)
+                else:
+                    fetched_text = soup.get_text(separator=' ', strip=True)
+
+                print("[Training] Content fetched successfully.")
+                self.gn.train_on_text(fetched_text)
+
+            except Exception as e:
+                print(f"[Training] Failed to fetch or train: {e}")
+                # Fallback to bootstrap if web fetch fails
+                self.gn.bootstrap_from_corpus([["hello","world"]])
+
+            print("[Training] Learning complete. Saving knowledge...")
+            self.gn.save()
+            print("[Training] Knowledge saved to grammar.json.")
+
+        print(f"[Network Info] Neurons: {self.gn.neurons.N}, Synapses: {self.gn.synapses[0].E if self.gn.synapses else 'N/A'}")
     def sense_encode(self, text: str):
         difficulty=min(1.0, max(0.0, len(text)/140.0)); uncertainty=0.6 if "?" in text else 0.25; return difficulty, uncertainty
     def _content_tokens(self, toks):
