@@ -268,23 +268,46 @@ class GrammarNetwork:
         n_steps = int(sim_duration_ms / dt)
 
         while len(out) < L:
-            # --- Inject spike into the current neuron ---
-            current_neuron = self.neurons[cur]
-            current_neuron.V_soma = 0  # Force spike by raising voltage above threshold
+            # --- 1. Reset neuron states ---
+            for neuron in self.neurons:
+                neuron.spikes.times.clear()
+                neuron.V_soma = -70.0; neuron.V_basal = -72.0; neuron.V_api_p = -71.0; neuron.V_api_d = -74.0
 
-            # --- Placeholder simulation loop ---
-            # In the future, this loop will perform a real simulation to find the next token.
-            # For now, we just step the neurons to show the structure and then use the old logic.
+            # --- 2. Inject spike and run simulation ---
+            current_neuron = self.neurons[cur]
+            current_neuron.V_soma = 0  # Force spike
+
+            first_spike_time = float('inf')
+            winner_id = -1
+
             for i in range(n_steps):
                 t = i * dt
-                for neuron in self.neurons:
-                    # We are not providing any input currents yet.
+                for idx, neuron in enumerate(self.neurons):
                     neuron.step(t, dt)
+                    if winner_id == -1 and neuron.spikes.times and neuron.spikes.times[-1] <= t:
+                        # Check if this is the first spike in the simulation
+                        if t < first_spike_time:
+                            first_spike_time = t
+                            winner_id = idx
+            
+            # --- 3. Determine the winner ---
+            if winner_id != -1:
+                nxt = winner_id
+            else:
+                # Fallback: find neuron with the highest membrane potential
+                max_v = -float('inf')
+                nxt = -1
+                for idx, neuron in enumerate(self.neurons):
+                    if neuron.V_soma > max_v:
+                        max_v = neuron.V_soma
+                        nxt = idx
+                if nxt == -1: nxt = (cur + 1) % self.V # Ultimate fallback
 
-            # --- Token selection (using old logic for now) ---
-            nxt,role=self.next_token(cur, role, recent, freq)
+            # --- (Old logic replaced) ---
+            # nxt,role=self.next_token(cur, role, recent, freq)
+            role = 0 # Placeholder for role, as HMM is not driving decisions anymore
 
-            # --- Update state ---
+            # --- 4. Update state ---
             if cur in punct and nxt in punct: continue
             word=self.vocab[nxt]
             if len(out)>8 and word in (out[-1], out[-2] if len(out)>1 else ""): break
