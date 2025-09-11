@@ -17,7 +17,7 @@ class PyramidalMC:
         self.Ca_soma=0.05; self.Ca_basal=0.05; self.Ca_api_p=0.05; self.Ca_api_d=0.05
         self.inputs_soma=[]; self.inputs_basal=[]; self.inputs_api_p=[]; self.inputs_api_d=[]
     def add_current(self, target, fn): getattr(self, f"inputs_{target}").append(fn)
-    def _sumI(self, arr, t): return sum(float(fn(t)) for fn in arr) if arr else 0.0
+    def _sumI(self, arr): return sum(float(fn()) for fn in arr) if arr else 0.0
     def _chan_step(self, V, dt, chans, Ca=None):
         I=0.0; I_Ca=0.0
         for ch in chans:
@@ -32,14 +32,14 @@ class PyramidalMC:
         I_b,ICa_b=self._chan_step(self.V_basal,dt,[self.Na_b,self.K_b,self.Leak_b,self.Ca_b,self.KCa_b],self.Ca_basal)
         I_p,ICa_p=self._chan_step(self.V_api_p,dt,[self.Na_ap,self.K_ap,self.Leak_ap,self.Ca_ap,self.KCa_ap],self.Ca_api_p)
         I_d,ICa_d=self._chan_step(self.V_api_d,dt,[self.Na_ad,self.K_ad,self.Leak_ad,self.Ca_ad,self.KCa_ad],self.Ca_api_d)
-        Iext_b=self._sumI(self.inputs_basal,t); Iext_p=self._sumI(self.inputs_api_p,t); Iext_d=self._sumI(self.inputs_api_d,t)
+        Iext_b=self._sumI(self.inputs_basal); Iext_p=self._sumI(self.inputs_api_p); Iext_d=self._sumI(self.inputs_api_d)
         I_sb=self.g_sb*(self.V_soma-self.V_basal); I_sp=self.g_sp*(self.V_soma-self.V_api_p); I_pd=self.g_pd*(self.V_api_p-self.V_api_d)
         self.V_basal += dt*((-I_b + I_sb + Iext_b)/self.Cm)
         self.V_api_p += dt*((-I_p + I_sp + Iext_p - I_pd)/self.Cm)
         self.V_api_d += dt*((-I_d + I_pd + Iext_d)/self.Cm)
         self._update_Ca("Ca_basal",ICa_b,dt); self._update_Ca("Ca_api_p",ICa_p,dt); self._update_Ca("Ca_api_d",ICa_d,dt)
         I_s,ICa_s=self._chan_step(self.V_soma,dt,[self.Na_s,self.K_s,self.Leak_s,self.HCN_s,self.GIRK_s],self.Ca_soma)
-        I_csb=self.g_sb*(self.V_basal-self.V_soma); I_csp=self.g_sp*(self.V_api_p-self.V_soma); Iext_s=self._sumI(self.inputs_soma,t)
+        I_csb=self.g_sb*(self.V_basal-self.V_soma); I_csp=self.g_sp*(self.V_api_p-self.V_soma); Iext_s=self._sumI(self.inputs_soma)
         self.V_soma += dt*((-I_s + I_csb + I_csp + Iext_s)/self.Cm); self.V_AIS = 0.85*self.V_soma + 0.10*self.V_api_p + 0.05*self.V_basal
         if self.V_AIS> -50.5: self.spikes.times.append(t); self.V_soma-=15.0; self.V_basal-=2.0; self.V_api_p-=2.0
         self._update_Ca("Ca_soma",ICa_s,dt)

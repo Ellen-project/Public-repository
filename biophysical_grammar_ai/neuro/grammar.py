@@ -3,6 +3,8 @@ import json, os
 from typing import List, Dict
 from ..ops import xp, clip, to_cpu
 from .pcoding import PredictiveCodingMixer
+from .synapses import Synapse
+from .neurons import PyramidalMC
 class RoleHMM:
     def __init__(self, V: int, roles: List[str]):
         self.roles=roles; self.R=len(roles); self.V=V
@@ -29,7 +31,9 @@ class RoleHMM:
 class GrammarNetwork:
     def __init__(self, vocab: List[str], save_path: str):
         self.vocab=vocab; self.V=len(vocab); self.idx={w:i for w,i in zip(vocab, range(len(vocab)))}
-        self.W=xp.zeros((self.V,self.V),dtype=xp.float32); self.save_path=save_path
+        self.save_path=save_path
+        self.neurons = [PyramidalMC() for _ in range(self.V)]
+        self.synapses = {} # (pre_idx, post_idx) -> Synapse object
         self.roles=["START","DET_DEF","DET_INDEF","DET_DEMON","ADJ_QUAL","ADJ_COMP","ADJ_SUPER","SUBJ","VERB","OBJ","MOD","PRT","AUX_ZEIT","AUX_MODAL","AUX_PERF","AUX_PROG","CONJ_COORD","CONJ_SUBORD","CONJ_CORREL","PREP_PLACE","PREP_TIME","PREP_MEANS","NUM","PUNCT","REL_PRON_R","REL_PRON_NR","REL_COMP_R","REL_COMP_NR","REL_ADV_R","REL_ADV_NR","END"]
         self.hmm=RoleHMM(self.V,self.roles)
         self.allowed_mask=xp.ones((self.V,),dtype=xp.float32)*0.0
@@ -86,56 +90,97 @@ class GrammarNetwork:
             if k in self.roles: self._role_lr_vec[self.roles.index(k)]=float(v)
     def load(self):
         if os.path.exists(self.save_path):
-            try: blob=json.load(open(self.save_path,"r",encoding="utf-8"))
-            except Exception: return False
+            try:
+                blob = json.load(open(self.save_path, "r", encoding="utf-8"))
+            except Exception:
+                return False
             if "W_sparse" in blob:
-                for i,pairs in enumerate(blob["W_sparse"]):
-                    if i>=self.V: break
-                    for j,val in pairs:
-                        if j<self.V: self.W[i,j]=float(val)
-                self.W=self.W/(self.W.sum(axis=1, keepdims=True)+1e-6)
+                self.synapses.clear()
+                for i, pairs in enumerate(blob["W_sparse"]):
+                    if i >= self.V: continue
+                    for j, val in pairs:
+                        if j < self.V:
+                            pre_neuron = self.neurons[i]
+                            post_neuron = self.neurons[j]
+                            syn = Synapse(pre=pre_neuron, post=post_neuron, weight=float(val))
+                            self.synapses[(i, j)] = syn
+                            post_neuron.add_current(syn.target, syn.current)
             return True
         return False
+
     def save(self):
-        W=self.W
-        try:
-            import cupy as _cp
-            if isinstance(W,_cp.ndarray): W=_cp.asnumpy(W)
-        except Exception: pass
-        K=12; W_sparse=[]
-        for i in range(W.shape[0]):
-            row=W[i]; idxs=row.argsort()[-K:][::-1]; pairs=[]
-            for j in idxs:
-                val=float(row[j])
-                if val>0.0: pairs.append([int(j),val])
-            W_sparse.append(pairs)
-        tmp=self.save_path+".tmp"; json.dump({"W_sparse":W_sparse}, open(tmp,"w",encoding="utf-8")); os.replace(tmp,self.save_path)
+        W_sparse = [[] for _ in range(self.V)]
+        for (pre, post), syn in self.synapses.items():
+            if pre < self.V and post < self.V:
+                W_sparse[pre].append([post, syn.weight])
+
+        K = 12
+        for i in range(len(W_sparse)):
+            row = W_sparse[i]
+            if not row: continue
+            row.sort(key=lambda x: x[1], reverse=True)
+            W_sparse[i] = row[:K]
+
+        tmp = self.save_path + ".tmp"
+        json.dump({"W_sparse": W_sparse}, open(tmp, "w", encoding="utf-8"))
+        os.replace(tmp, self.save_path)
+
     def bootstrap_from_corpus(self, corpus: List[List[str]]):
-        ids_corpus=[]; k=8
+        ids_corpus = []
+        k = 8
         for sent in corpus:
-            ids=[self.idx[w] for w in sent if w in self.idx]
-            if not ids: continue
+            ids = [self.idx[w] for w in sent if w in self.idx]
+            if not ids:
+                continue
             ids_corpus.append(ids)
-            for i,cur in enumerate(ids):
-                for j in range(max(0,i-k), i):
-                    pre=ids[j]; dist=i-j; self.W[pre,cur]+=1.0/dist
-        self.W=self.W/(self.W.sum(axis=1, keepdims=True)+1e-6)
-        if ids_corpus: self.hmm.em_train(ids_corpus, iters=3)
+            for i, cur_id in enumerate(ids):
+                for j in range(max(0, i - k), i):
+                    pre_id = ids[j]
+                    dist = i - j
+                    if (pre_id, cur_id) not in self.synapses:
+                        pre_neuron = self.neurons[pre_id]
+                        post_neuron = self.neurons[cur_id]
+                        syn = Synapse(pre=pre_neuron, post=post_neuron, weight=0.0)
+                        self.synapses[(pre_id, cur_id)] = syn
+                        post_neuron.add_current(syn.target, syn.current)
+                    self.synapses[(pre_id, cur_id)].weight += 1.0 / dist
+
+        weights_sum = {}
+        for (pre, _), syn in self.synapses.items():
+            weights_sum[pre] = weights_sum.get(pre, 0) + syn.weight
+        for (pre, _), syn in self.synapses.items():
+            if weights_sum.get(pre, 0) > 1e-6:
+                syn.weight /= weights_sum[pre]
+
+        if ids_corpus:
+            self.hmm.em_train(ids_corpus, iters=50)
+
     def _length_hint(self):
         import numpy as np
         mu=18 + 8*getattr(self,'diff',0.2); sigma=5 + 4*getattr(self,'unc',0.2)
         return int(np.clip(np.random.normal(mu, sigma), 8, 72))
+
     def online_stdp(self, pre_id, post_id, role_id=None):
-        self.pre_trace *= 0.95; self.post_trace *= 0.95
-        self.pre_trace[pre_id]+=1.0; self.post_trace[post_id]+=1.0
-        lr=1.0
+        self.pre_trace *= 0.95
+        self.post_trace *= 0.95
+        self.pre_trace[pre_id] += 1.0
+        self.post_trace[post_id] += 1.0
+        lr = 1.0
         if role_id is not None and self._role_lr_vec is not None:
-            try: lr=float(self._role_lr_vec[role_id])
-            except Exception: 
-                import numpy as _np; lr=float(_np.asarray(to_cpu(self._role_lr_vec))[role_id])
-        dw=lr*(0.02*self.pre_trace[pre_id]*self.post_trace[post_id] - 0.01*self.pre_trace.mean())
-        self.W[pre_id,post_id]=clip(self.W[pre_id,post_id]+dw,0.0,1.0)
-        self.W[pre_id]= self.W[pre_id]/(self.W[pre_id].sum()+1e-8)
+            try:
+                lr = float(self._role_lr_vec[role_id])
+            except Exception:
+                import numpy as _np
+                lr = float(_np.asarray(to_cpu(self._role_lr_vec))[role_id])
+        
+        dw = lr * (0.02 * self.pre_trace[pre_id] * self.post_trace[post_id] - 0.01 * self.pre_trace.mean())
+
+        if (pre_id, post_id) not in self.synapses:
+            self.synapses[(pre_id, post_id)] = Synapse(pre=None, post=None, weight=0.0)
+        
+        syn = self.synapses[(pre_id, post_id)]
+        syn.weight = clip(syn.weight + dw, 0.0, 1.0)
+
     def _prior_from_semantic(self):
         if self.E_emb is None or self.ctx_vec is None: return xp.ones((self.V,),dtype=xp.float32)
         p=self.E_emb @ self.ctx_vec; m=abs(p).max()+1e-9; p=p/m; p=p - p.min() + 1e-6
@@ -143,45 +188,48 @@ class GrammarNetwork:
             for lid in self.lex_bias_ids:
                 if 0<=lid< self.V: p[lid]+=0.4
         return p
+
     def next_token(self, cur_id, prev_role, recent_ids, freq):
-        row=self.W[cur_id].copy()
-        # trigram-ish fusion with previous-1
-        if recent_ids and len(recent_ids)>=2:
+        row = xp.zeros((self.V,), dtype=xp.float32)
+        for (pre, post), syn in self.synapses.items():
+            if pre == cur_id:
+                row[post] = syn.weight
+
+        if recent_ids and len(recent_ids) >= 2:
             prev1 = recent_ids[-2]
-            row = 0.85*row + 0.15*self.W[prev1]
-        if float((row>0).sum())<4:
-            starters=[self.idx[w] for w in ["in","the","we","this"] if w in self.idx]
-            for j in starters: row[j]+=0.05
+            row_prev1 = xp.zeros((self.V,), dtype=xp.float32)
+            for (pre, post), syn in self.synapses.items():
+                if pre == prev1:
+                    row_prev1[post] = syn.weight
+            row = 0.85 * row + 0.15 * row_prev1
+        
         role_mask=self.hmm.role_mask(prev_role if prev_role is not None else 0)
         emit=self.hmm.E; role_probs=role_mask/(role_mask.sum()+1e-8)
         if getattr(self, "_role_bias_vec", None) is not None:
             rb=self._role_bias_vec; role_probs=role_probs*rb; role_probs/= (role_probs.sum()+1e-8)
-        # DET->DET suppression
-        if prev_role in self._det_roles:
-            for dr in self._det_roles: role_probs[dr]*=0.05
+        
         emit_mix=role_probs @ emit
         prior=self._prior_from_semantic(); err=self.content_mask.copy()
         logp=self.pcm.mix(prior, emit_mix, row, err)
         logp = logp + xp.log(self.allowed_mask + 1e-9)
         for wid,c in freq.items():
-            # heavier penalty for function words repeated
             if c>0:
                 try:
                     tok=self.vocab[wid]
                     if tok in self._func_words:
-                        logp[wid] -= 0.7*float(c)
+                        logp[wid] -= 0.3*float(c)
                 except Exception:
                     pass
-            if 0<=wid<logp.size and c>0: logp[wid] -= 0.9*float(c)
+            if 0<=wid<logp.size and c>0: logp[wid] -= 0.4*float(c)
         if recent_ids:
             for rid in recent_ids[-4:]:
                 try:
                     tok=self.vocab[rid]
                     if tok in self._func_words:
-                        logp[rid] -= 0.8
+                        logp[rid] -= 0.3
                 except Exception:
                     pass
-                if 0<=rid<logp.size: logp[rid]-=1.5
+                if 0<=rid<logp.size: logp[rid]-=0.6
         x=logp/0.9; x=x - x.max(); p=xp.exp(x); p[cur_id]=0.0; p=p/(p.sum()+1e-9)
         order=xp.argsort(-p); csum=xp.cumsum(p[order]); cutoff=int((csum<=0.9).sum()); cutoff = cutoff if cutoff>=8 else min(16, p.size)
         mask=xp.zeros_like(p); mask[order[:cutoff]]=1.0; p=p*mask; p=p/(p.sum()+1e-9)
@@ -189,7 +237,6 @@ class GrammarNetwork:
         if hasattr(p,"get"):
             import numpy as _np; probs = to_cpu(p)
             j=int(_np.random.choice(len(probs), p=probs))
-            # resample guard
             if resample_once and (j==cur_id or (recent_ids and j==recent_ids[-1])):
                 probs[j] = 0.0; s = probs.sum();
                 if s>1e-9: probs = probs/s; j=int(_np.random.choice(len(probs), p=probs))
@@ -200,6 +247,7 @@ class GrammarNetwork:
                 probs[j] = 0.0; s = probs.sum();
                 if s>1e-9: probs = probs/s; j=int(_np.random.choice(len(probs), p=probs))
         r_next=int(xp.argmax(role_probs)); return j, r_next
+
     def generate(self,prompt_tokens: List[str], max_len=None):
         ids=[self.idx.get(tok,None) for tok in prompt_tokens if tok in self.idx]
         if not ids:
@@ -209,14 +257,34 @@ class GrammarNetwork:
         cur=ids[-1]; out=list(prompt_tokens); role=0; L=max_len or self._length_hint()
         punct={self.idx.get(tok) for tok in [".",",","?","!",";"] if tok in self.idx}
         freq={}; recent=list(ids[-4:])
-        for _ in range(L):
+
+        # Simulation parameters
+        dt = 0.1  # ms
+        sim_duration_ms = 5  # ms per token - keep it short as it's just a placeholder
+        n_steps = int(sim_duration_ms / dt)
+
+        while len(out) < L:
+            # --- Placeholder simulation loop ---
+            # In the future, this loop will perform a real simulation to find the next token.
+            # For now, we just step the neurons to show the structure and then use the old logic.
+            for i in range(n_steps):
+                t = i * dt
+                for neuron in self.neurons:
+                    # We are not providing any input currents yet.
+                    neuron.step(t, dt)
+
+            # --- Token selection (using old logic for now) ---
             nxt,role=self.next_token(cur, role, recent, freq)
+
+            # --- Update state ---
             if cur in punct and nxt in punct: continue
             word=self.vocab[nxt]
             if len(out)>8 and word in (out[-1], out[-2] if len(out)>1 else ""): break
             out.append(word); freq[nxt]=freq.get(nxt,0)+1
-            self.online_stdp(cur, nxt, role_id=role); cur=nxt; recent.append(nxt); recent=recent[-4:]
+            #self.online_stdp(cur, nxt, role_id=role)
+            cur=nxt; recent.append(nxt); recent=recent[-4:]
             if word in (".","!","?") and len(out)>8: break
+        
         text=" ".join(out); text=text.replace(" ,",",").replace(" .",".").replace(" !","!").replace(" ?","?").replace(" ;",";")
         if text and text[0].isalpha(): text=text[0].upper()+text[1:]
         if text[-1] not in ".!?": text+="."
