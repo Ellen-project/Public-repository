@@ -16,6 +16,7 @@ class PyramidalMC:
         self.spikes = SpikeRec(times=[])
         self.Ca_soma=0.05; self.Ca_basal=0.05; self.Ca_api_p=0.05; self.Ca_api_d=0.05
         self.inputs_soma=[]; self.inputs_basal=[]; self.inputs_api_p=[]; self.inputs_api_d=[]
+        self.efferent_synapses = []
     def add_current(self, target, fn): getattr(self, f"inputs_{target}").append(fn)
     def _sumI(self, arr): return sum(float(fn()) for fn in arr) if arr else 0.0
     def _chan_step(self, V, dt, chans, Ca=None):
@@ -41,7 +42,11 @@ class PyramidalMC:
         I_s,ICa_s=self._chan_step(self.V_soma,dt,[self.Na_s,self.K_s,self.Leak_s,self.HCN_s,self.GIRK_s],self.Ca_soma)
         I_csb=self.g_sb*(self.V_basal-self.V_soma); I_csp=self.g_sp*(self.V_api_p-self.V_soma); Iext_s=self._sumI(self.inputs_soma)
         self.V_soma += dt*((-I_s + I_csb + I_csp + Iext_s)/self.Cm); self.V_AIS = 0.85*self.V_soma + 0.10*self.V_api_p + 0.05*self.V_basal
-        if self.V_AIS> -50.5: self.spikes.times.append(t); self.V_soma-=15.0; self.V_basal-=2.0; self.V_api_p-=2.0
+        if self.V_AIS> -50.5:
+            self.spikes.times.append(t)
+            self.V_soma-=15.0; self.V_basal-=2.0; self.V_api_p-=2.0
+            for syn in self.efferent_synapses:
+                syn.on_pre_spike(dt)
         self._update_Ca("Ca_soma",ICa_s,dt)
 class PV_Basket:
     def __init__(self): self.V_soma=-68.0; self.Na=NaV(90); self.K=KV(55); self.Leak=Leak(0.25,-65); self.Cm=0.9; self.spikes=[]

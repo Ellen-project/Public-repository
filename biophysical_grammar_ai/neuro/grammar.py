@@ -105,6 +105,8 @@ class GrammarNetwork:
                             syn = Synapse(pre=pre_neuron, post=post_neuron, weight=float(val))
                             self.synapses[(i, j)] = syn
                             post_neuron.add_current(syn.target, syn.current)
+                            pre_neuron.efferent_synapses.append(syn)
+                            pre_neuron.efferent_synapses.append(syn)
             return True
         return False
 
@@ -143,6 +145,8 @@ class GrammarNetwork:
                         syn = Synapse(pre=pre_neuron, post=post_neuron, weight=0.0)
                         self.synapses[(pre_id, cur_id)] = syn
                         post_neuron.add_current(syn.target, syn.current)
+                        pre_neuron.efferent_synapses.append(syn)
+                        pre_neuron.efferent_synapses.append(syn)
                     self.synapses[(pre_id, cur_id)].weight += 1.0 / dist
 
         weights_sum = {}
@@ -264,6 +268,10 @@ class GrammarNetwork:
         n_steps = int(sim_duration_ms / dt)
 
         while len(out) < L:
+            # --- Inject spike into the current neuron ---
+            current_neuron = self.neurons[cur]
+            current_neuron.V_soma = 0  # Force spike by raising voltage above threshold
+
             # --- Placeholder simulation loop ---
             # In the future, this loop will perform a real simulation to find the next token.
             # For now, we just step the neurons to show the structure and then use the old logic.
