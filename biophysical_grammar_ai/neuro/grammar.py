@@ -33,7 +33,7 @@ class GrammarNetwork:
         self.save_path=save_path
 
         # SNN Backend Setup
-        self.dt = 1e-4  # 0.1 ms timestep
+        self.dt = 1e-3  # 0.1 ms timestep
         self.neurons = NeuronPopulation(N=self.V, dt=self.dt)
         self.synapses = [] # This will hold SynapseGroup objects
         self.net = None # This will be the SNN object
@@ -102,7 +102,7 @@ class GrammarNetwork:
         num_synapses = int(self.V * self.V * 0.001)
         pre_ids = cp.random.randint(0, self.V, num_synapses, dtype=cp.int32)
         post_ids = cp.random.randint(0, self.V, num_synapses, dtype=cp.int32)
-        initial_weights = cp.random.uniform(1e-10, 1e-9, num_synapses).astype(cp.float32)
+        initial_weights = cp.random.uniform(1e-9, 5e-9, num_synapses).astype(cp.float32)
         
         connections = []
         # This conversion to list of tuples is slow, but required by from_connections
@@ -120,6 +120,8 @@ class GrammarNetwork:
             receptor_types='AMPA+NMDA', # NMDA is crucial for plasticity
             name="learned_synapses"
         )
+        print("[Training Debug] Init weights:", float(cp.min(syn_group.w)), float(cp.max(syn_group.w)))
+
         self.synapses.append(syn_group)
         self.net = SNN(neurons=[self.neurons], synapses=self.synapses)
         print(f"[Training] Network created with {syn_group.E} synapses.")
@@ -135,21 +137,37 @@ class GrammarNetwork:
 
         # 3. Run the learning simulation
         print(f"[Training] Starting learning loop on {len(tokens)} tokens...")
-        I_inject = 4e-9 # 4 nA
+        I_inject = 2e-9 # 4 nA
         sim_steps_per_token = 100 # ms to simulate for each word
         
         start_time = time.time()
+        total_spikes_since_last_report = 0
         for i, token_id in enumerate(tokens):
             Iext = {self.neurons: cp.zeros(self.V, dtype=cp.float32)}
             Iext[self.neurons][token_id] = I_inject
 
+            spikes_this_token = 0
+
             for _ in range(sim_steps_per_token):
                 self.net.step(Iext)
+                spikes_this_token += cp.sum(self.neurons.spike)
             
+            total_spikes_since_last_report += spikes_this_token
+
             # Report progress
             if (i + 1) % 100 == 0:
                 elapsed = time.time() - start_time
-                print(f"[Training] ... processed {i+1}/{len(tokens)} tokens in {elapsed:.2f}s.")
+                avg_firing_rate = (total_spikes_since_last_report / 100) / (self.neurons.N * sim_steps_per_token * self.dt)
+                total_spikes_since_last_report = 0 # Reset for next 100 tokens
+
+                syn_w = self.net.synapses[0].w
+                w_min = cp.min(syn_w)
+                w_max = cp.max(syn_w)
+                w_mean = cp.mean(syn_w)
+                w_std = cp.std(syn_w)
+
+                print(f"--- [Training Debug @ Token {i+1}/{len(tokens)} spikes in last 100={total_spikes_since_last_report}] --- \nTime elapsed: {elapsed:.2f}s\nAvg Firing Rate: {avg_firing_rate:.2f} Hz\nSynapse weights (E->E): Min={w_min:.4e}, Max={w_max:.4e}, Mean={w_mean:.4e}, Std={w_std:.4e}\n")
+                print(float(cp.min(syn_w)), float(cp.max(syn_w)))
         
         total_time = time.time() - start_time
         print(f"[Training] Finished training on {len(tokens)} tokens in {total_time:.2f}s.")

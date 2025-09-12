@@ -30,7 +30,7 @@ class Pipeline:
         tpls=["Hello , and thanks for your message .","Here is a concise answer to your question .","In short , we can explain the steps clearly .","If you prefer , I can provide more detail in the next turn .","From a legal standpoint , the contract should specify scope and remedies .","Clinically , the patient improved after the initial therapy .","The portfolio balances equity exposure with hedges that limit volatility .","The curriculum integrates formative assessment with useful feedback .","A layered control strategy reduces the blast radius of an incident .","The team improved possession by adjusting tempo and spacing .","The pipeline validates data quality before model training ."]
         if not self.gn.load():
             print("[Training] No pre-trained grammar found. Starting self-learning...")
-            learning_url = "https://ko.wikipedia.org/wiki/%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5"
+            learning_url = "https://en.wikipedia.org/wiki/Artificial_intelligence"
             
             try:
                 import requests
