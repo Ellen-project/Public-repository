@@ -1,0 +1,8 @@
+Ellen Project includes components from the following open-source projects:
+
+1. Open Korean Text (Okt)
+   - License: Apache License 2.0
+   - Copyright (c) Open Korean Text Project
+   - Source: https://github.com/open-korean-text/open-korean-text
+
+The above components are redistributed in binary form under their respective licenses.
