@@ -12,8 +12,8 @@ from typing import Optional
 import torch
 from tqdm import tqdm
 
-from Low_Rank_Path_SSM import FullSNNPathRouter
-from c4_lrp_lm import create_gate_feature_encoder, gate_statistics, load_gate_feature_encoder, torch_load
+from lrp_ssm.low_rank_path_ssm import FullSNNPathRouter
+from lm.c4_lrp_lm import create_gate_feature_encoder, gate_statistics, load_gate_feature_encoder, torch_load
 
 
 def parse_args():

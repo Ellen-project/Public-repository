@@ -6,7 +6,7 @@ import argparse
 
 import numpy as np
 
-from Low_Rank_Path_SSM import (
+from lrp_ssm.low_rank_path_ssm import (
     FullSNNPathRouter,
     build_gate_cache,
     gate_cache_metadata,

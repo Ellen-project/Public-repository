@@ -59,7 +59,7 @@ class LRPSSMWrapper(nn.Module):
     ):
         super().__init__()
         try:
-            from c4_lrp_lm import C4LRPSSMLanguageModel
+            from lm.c4_lrp_lm import C4LRPSSMLanguageModel
 
             self.model = C4LRPSSMLanguageModel(
                 vocab_size=vocab_size,
@@ -74,7 +74,7 @@ class LRPSSMWrapper(nn.Module):
             )
             self.uses_root_c4_model = True
         except Exception:
-            from Low_Rank_Path_SSM import LowRankPathSSMCore
+            from lrp_ssm.low_rank_path_ssm import LowRankPathSSMCore
 
             class FallbackLRP(nn.Module):
                 def __init__(self):

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from Low_Rank_Path_SSM import FullSNNPathRouter, build_gate_cache
+from lrp_ssm.low_rank_path_ssm import FullSNNPathRouter, build_gate_cache
 
 
 def parse_args():

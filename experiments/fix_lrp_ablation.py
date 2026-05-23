@@ -10,8 +10,8 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-from Low_Rank_Path_SSM import load_gate_cache
-from c4_lrp_lm import gate_statistics, load_c4_lm_checkpoint, safe_perplexity, torch_load
+from lrp_ssm.low_rank_path_ssm import load_gate_cache
+from lm.c4_lrp_lm import gate_statistics, load_c4_lm_checkpoint, safe_perplexity, torch_load
 
 
 def default_device() -> str:

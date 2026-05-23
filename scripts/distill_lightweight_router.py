@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from Low_Rank_Path_SSM import (
+from lrp_ssm.low_rank_path_ssm import (
     FullSNNPathRouter,
     LightweightRouter,
     build_gate_cache,

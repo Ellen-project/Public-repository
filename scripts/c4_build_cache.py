@@ -11,9 +11,9 @@ from typing import Optional
 import torch
 from tqdm import tqdm
 
-from Low_Rank_Path_SSM import save_gate_cache
-from c4_data import build_tokenizer, iter_c4_token_blocks
-from c4_lrp_lm import (
+from lrp_ssm.low_rank_path_ssm import save_gate_cache
+from lm.c4_data import build_tokenizer, iter_c4_token_blocks
+from lm.c4_lrp_lm import (
     create_gate_feature_encoder,
     gate_statistics,
     load_full_snn_router_for_dimensions,

@@ -64,7 +64,7 @@ def load_gate_cache(path: str | Path) -> Tuple[torch.Tensor, dict]:
         raise FileNotFoundError(
             f"{path_obj} not found. 먼저 c4_build_cache.py를 실행해서 C4 gate cache를 생성하라."
         )
-    from Low_Rank_Path_SSM import load_gate_cache as root_load_gate_cache
+    from lrp_ssm.low_rank_path_ssm import load_gate_cache as root_load_gate_cache
 
     gates_np, metadata = root_load_gate_cache(str(path_obj))
     gates = torch.from_numpy(gates_np).float()

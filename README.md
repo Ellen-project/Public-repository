@@ -2,8 +2,6 @@
 
 Hybrid sequence-modeling experiments inspired by spiking neurons, synapses, and selective state-space models.
 
-This project is not a reproduction of Mamba. The paper `2312.00752v2.pdf` is used as background for selective SSM ideas, while this repository explores an SNN-gated low-rank path SSM.
-
 ## Layout
 
 - `src/`: importable model and data code

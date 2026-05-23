@@ -11,9 +11,9 @@ from typing import Optional, Tuple
 
 import torch
 
-from Low_Rank_Path_SSM import load_gate_cache
-from c4_data import build_tokenizer, load_c4_stream
-from c4_lrp_lm import (
+from lrp_ssm.low_rank_path_ssm import load_gate_cache
+from lm.c4_data import build_tokenizer, load_c4_stream
+from lm.c4_lrp_lm import (
     C4LRPSSMLanguageModel,
     gate_statistics,
     generate_distilled_gates_for_input_ids,

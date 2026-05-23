@@ -12,8 +12,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from Low_Rank_Path_SSM import LightweightRouter, load_gate_cache
-from c4_lrp_lm import load_gate_feature_encoder, torch_load
+from lrp_ssm.low_rank_path_ssm import LightweightRouter, load_gate_cache
+from lm.c4_lrp_lm import load_gate_feature_encoder, torch_load
 
 
 def default_device() -> str:

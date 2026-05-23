@@ -7,8 +7,8 @@ import argparse
 import numpy as np
 import torch
 
-from Low_Rank_Path_SSM import LowRankPathSSMModel
-from pyramidalNeuron import Network, PyramidalNeuron
+from lrp_ssm.low_rank_path_ssm import LowRankPathSSMModel
+from snn.pyramidal_neuron import Network, PyramidalNeuron
 
 
 def parse_args():
