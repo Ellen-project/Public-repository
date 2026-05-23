@@ -216,18 +216,31 @@ def learned_gate_losses(
     probs: torch.Tensor,
     target_active_paths: float,
     num_paths: int,
+    teacher_gates: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
     target_rate = float(target_active_paths) / max(1, int(num_paths))
     mean_gate = probs.mean()
     rate_loss = (mean_gate - target_rate) ** 2
     path_rates = probs.mean(dim=(0, 1))
-    balance_loss = path_rates.var(unbiased=False)
-    entropy = -(probs.clamp(1e-6, 1 - 1e-6) * torch.log(probs.clamp(1e-6, 1 - 1e-6))).mean()
-    return {
+    balance_loss = ((path_rates - target_rate) ** 2).mean()
+    probs_safe = probs.clamp(1e-6, 1.0 - 1e-6)
+    entropy = -(
+        probs_safe * torch.log(probs_safe)
+        + (1.0 - probs_safe) * torch.log(1.0 - probs_safe)
+    ).mean()
+    commitment_loss = (probs * (1.0 - probs)).mean()
+    losses = {
         "gate_rate_loss": rate_loss,
         "gate_balance_loss": balance_loss,
         "gate_entropy": entropy,
+        "gate_commitment_loss": commitment_loss,
     }
+    if teacher_gates is not None:
+        teacher = teacher_gates.detach().to(device=probs.device, dtype=probs.dtype)
+        if teacher.shape != probs.shape:
+            raise ValueError(f"teacher_gates shape {tuple(teacher.shape)} != probs shape {tuple(probs.shape)}")
+        losses["gate_teacher_bce_loss"] = F.binary_cross_entropy(probs_safe, teacher.clamp(0.0, 1.0))
+    return losses
 
 
 def generate_snn_gates_for_input_ids(
@@ -600,12 +613,28 @@ class C4LRPSSMLanguageModel(nn.Module):
                 "num_tokens": num_tokens,
             }
             if learned_probs is not None:
-                losses = learned_gate_losses(learned_probs, self.target_active_paths, self.num_paths)
+                teacher_gates = (
+                    cached_gates
+                    if cached_gates is not None and cached_gates.shape == learned_probs.shape
+                    else None
+                )
+                losses = learned_gate_losses(
+                    learned_probs,
+                    self.target_active_paths,
+                    self.num_paths,
+                    teacher_gates=teacher_gates,
+                )
+                learned_active = learned_gate.detach().sum(dim=-1)
+                learned_path_rates = learned_gate.detach().float().mean(dim=(0, 1))
                 diagnostics["learned_mean_active_paths"] = float(learned_gate.detach().sum(dim=-1).mean().item())
                 diagnostics["learned_zero_gate_ratio"] = float((learned_gate.detach().sum(dim=-1) <= 1e-6).float().mean().item())
-                diagnostics["gate_rate_loss"] = float(losses["gate_rate_loss"].detach().cpu())
-                diagnostics["gate_balance_loss"] = float(losses["gate_balance_loss"].detach().cpu())
-                result["gate_loss"] = losses["gate_rate_loss"] + losses["gate_balance_loss"]
+                diagnostics["learned_all_on_gate_ratio"] = float((learned_active >= self.num_paths - 1e-6).float().mean().item())
+                diagnostics["learned_path_rate_min"] = float(learned_path_rates.min().item()) if learned_path_rates.numel() else 0.0
+                diagnostics["learned_path_rate_max"] = float(learned_path_rates.max().item()) if learned_path_rates.numel() else 0.0
+                diagnostics["learned_path_rate_std"] = float(learned_path_rates.std(unbiased=False).item()) if learned_path_rates.numel() else 0.0
+                for key, value in losses.items():
+                    diagnostics[key] = float(value.detach().cpu())
+                result["gate_loss"] = sum(losses.values())
                 result["gate_losses"] = losses
             if cached_gates is not None and learned_gate is not None:
                 diagnostics.update({f"cached_{k}": v for k, v in gate_statistics(cached_gates).items()})

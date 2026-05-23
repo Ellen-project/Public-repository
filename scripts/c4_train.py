@@ -70,13 +70,16 @@ def parse_args():
     parser.add_argument("--target-active-paths", type=float, default=1.5)
     parser.add_argument("--gate-loss-weight", type=float, default=0.01)
     parser.add_argument("--gate-balance-weight", type=float, default=0.001)
+    parser.add_argument("--gate-entropy-weight", type=float, default=0.001)
+    parser.add_argument("--gate-commitment-weight", type=float, default=0.001)
+    parser.add_argument("--gate-teacher-weight", type=float, default=0.0)
     parser.add_argument("--router-hidden-dim", type=int, default=128)
     parser.add_argument("--router-temperature", type=float, default=1.0)
     parser.add_argument("--router-topk", type=int, default=2)
-    parser.add_argument("--token-cache", type=str, default="c4_token_cache.pt")
-    parser.add_argument("--gate-cache", type=str, default="c4_gate_cache.pt")
-    parser.add_argument("--router-preset", type=str, default="best_router_preset.npz")
-    parser.add_argument("--gate-feature-encoder", type=str, default="c4_gate_feature_encoder.pt")
+    parser.add_argument("--token-cache", type=str, default="runs/cache/c4_token_cache.pt")
+    parser.add_argument("--gate-cache", type=str, default="runs/cache/c4_gate_cache.pt")
+    parser.add_argument("--router-preset", type=str, default="runs/cache/best_router_preset.npz")
+    parser.add_argument("--gate-feature-encoder", type=str, default="runs/cache/c4_gate_feature_encoder.pt")
     parser.add_argument("--lightweight-router", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="runs/c4_lrp_ssm")
     parser.add_argument("--device", type=str, default=default_device())
@@ -276,7 +279,9 @@ def main():
                 raise ValueError(f"gate cache num_paths {gates.shape[-1]} != --num-paths {args.num_paths}")
         elif args.mode == "distilled_router":
             gate_feature_encoder, _ = load_gate_feature_encoder(args.gate_feature_encoder, map_location="cpu")
-            router_path = args.lightweight_router or ("c4_lightweight_router.pt" if Path("c4_lightweight_router.pt").exists() else "lightweight_router.pt")
+            default_router = Path("runs/cache/c4_lightweight_router.pt")
+            fallback_router = Path("runs/cache/lightweight_router.pt")
+            router_path = args.lightweight_router or str(default_router if default_router.exists() else fallback_router)
             lightweight_router, lightweight_payload = load_c4_lightweight_router(router_path, map_location=device)
             lightweight_threshold = float(lightweight_payload.get("threshold", 0.5))
         train_loader, eval_loader = split_cache_dataset(
@@ -392,8 +397,13 @@ def main():
             output = model(input_ids_b, labels=labels_b, gates=gates_b, return_diagnostics=True)
             loss = output["loss"]
             if "gate_losses" in output:
-                loss = loss + args.gate_loss_weight * output["gate_losses"]["gate_rate_loss"]
-                loss = loss + args.gate_balance_weight * output["gate_losses"]["gate_balance_loss"]
+                gate_losses = output["gate_losses"]
+                loss = loss + args.gate_loss_weight * gate_losses["gate_rate_loss"]
+                loss = loss + args.gate_balance_weight * gate_losses["gate_balance_loss"]
+                loss = loss + args.gate_entropy_weight * gate_losses["gate_entropy"]
+                loss = loss + args.gate_commitment_weight * gate_losses["gate_commitment_loss"]
+                if "gate_teacher_bce_loss" in gate_losses:
+                    loss = loss + args.gate_teacher_weight * gate_losses["gate_teacher_bce_loss"]
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         grad_norm = torch.nn.utils.clip_grad_norm_(trainable_parameters(getattr(model, "_orig_mod", model)), args.grad_clip)

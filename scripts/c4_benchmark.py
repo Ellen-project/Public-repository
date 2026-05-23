@@ -38,10 +38,10 @@ def parse_csv_ints(text: str) -> list[int]:
 def parse_args():
     parser = argparse.ArgumentParser(description="Benchmark C4 LowRankPathSSM pipeline.")
     parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument("--token-cache", type=str, default="c4_token_cache.pt")
-    parser.add_argument("--gate-cache", type=str, default="c4_gate_cache.pt")
-    parser.add_argument("--router-preset", type=str, default="best_router_preset.npz")
-    parser.add_argument("--gate-feature-encoder", type=str, default="c4_gate_feature_encoder.pt")
+    parser.add_argument("--token-cache", type=str, default="runs/cache/c4_token_cache.pt")
+    parser.add_argument("--gate-cache", type=str, default="runs/cache/c4_gate_cache.pt")
+    parser.add_argument("--router-preset", type=str, default="runs/cache/best_router_preset.npz")
+    parser.add_argument("--gate-feature-encoder", type=str, default="runs/cache/c4_gate_feature_encoder.pt")
     parser.add_argument("--lightweight-router", type=str, default=None)
     parser.add_argument("--tokenizer-name", type=str, default="gpt2")
     parser.add_argument("--subset", type=str, default="en")
@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument("--num-iters", type=int, default=20)
     parser.add_argument("--device", type=str, default=default_device())
     parser.add_argument("--amp", action="store_true")
-    parser.add_argument("--output-report", type=str, default="c4_benchmark_report.json")
+    parser.add_argument("--output-report", type=str, default="runs/reports/c4_benchmark_report.json")
     return parser.parse_args()
 
 
@@ -311,7 +311,8 @@ def benchmark_evaluation_and_ablation(args, model_config, input_ids, labels, cac
         "all_on_gate": eval_loss_for_gates(model, x, y, make_gates(None, batch_size, block_size, int(model_config["num_paths"]), "all_on"), device, args.amp),
         "random_gate": eval_loss_for_gates(model, x, y, make_gates(None, batch_size, block_size, int(model_config["num_paths"]), "random"), device, args.amp),
     }
-    router_path = args.lightweight_router or ("c4_lightweight_router.pt" if Path("c4_lightweight_router.pt").exists() else None)
+    default_router = Path("runs/cache/c4_lightweight_router.pt")
+    router_path = args.lightweight_router or (str(default_router) if default_router.exists() else None)
     if router_path and Path(router_path).exists() and Path(args.gate_feature_encoder).exists():
         encoder, _ = load_gate_feature_encoder(args.gate_feature_encoder, map_location="cpu")
         light_router, payload = load_c4_lightweight_router(router_path, map_location=device)
@@ -362,7 +363,9 @@ def main():
         "avg_forward_ms": first_forward.get("avg_forward_ms", evaluation.get("avg_forward_ms")),
         "peak_gpu_memory_mb": first_forward.get("peak_gpu_memory_mb", evaluation.get("peak_gpu_memory_mb")),
     }
-    Path(args.output_report).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report_path = Path(args.output_report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("C4_BENCHMARK_PASS")
 
 

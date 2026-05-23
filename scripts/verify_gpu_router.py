@@ -19,12 +19,12 @@ def parse_args():
     parser.add_argument("--state-dim", type=int, default=16)
     parser.add_argument("--seq-len", type=int, default=4)
     parser.add_argument("--num-samples", type=int, default=2)
-    parser.add_argument("--router-preset", type=str, default="best_router_preset.npz")
-    parser.add_argument("--gate-cache", type=str, default="gate_cache.npy")
-    parser.add_argument("--ssm-checkpoint", type=str, default="ssm_model.pt")
+    parser.add_argument("--router-preset", type=str, default="runs/cache/best_router_preset.npz")
+    parser.add_argument("--gate-cache", type=str, default="runs/cache/gate_cache.npy")
+    parser.add_argument("--ssm-checkpoint", type=str, default="runs/smoke/ssm_model.pt")
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--report", type=str, default="gpu_verify_report.json")
+    parser.add_argument("--report", type=str, default="runs/reports/gpu_verify_report.json")
     return parser.parse_args()
 
 
@@ -47,7 +47,9 @@ def make_or_load_router(args, seed_offset=0):
 
 
 def write_report(path: str, report: dict):
-    Path(path).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    path_obj = Path(path)
+    path_obj.parent.mkdir(parents=True, exist_ok=True)
+    path_obj.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
 def main():

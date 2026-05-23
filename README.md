@@ -25,3 +25,5 @@ Then run:
 python scripts/smoke_cpu.py
 python scripts/train_ssm_smoke.py --epochs 1 --num-samples 4 --seq-len 4
 ```
+
+Generated smoke artifacts, C4 caches, checkpoints, and reports are written under `runs/` by default.

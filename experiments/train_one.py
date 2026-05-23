@@ -24,6 +24,11 @@ from models import count_parameters, gate_diagnostics, model_factory, perplexity
 
 
 LRP_MODELS = {"lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid"}
+GATE_RATE_WEIGHT = 0.01
+GATE_BALANCE_WEIGHT = 0.001
+GATE_ENTROPY_WEIGHT = 0.001
+GATE_COMMITMENT_WEIGHT = 0.001
+GATE_TEACHER_WEIGHT = 0.0
 
 
 def default_device() -> str:
@@ -299,8 +304,13 @@ def train_model(args) -> dict:
                 output = model(input_ids_b, labels=labels_b, **kwargs)
                 loss = output["loss"]
                 if "gate_losses" in output:
-                    loss = loss + 0.01 * output["gate_losses"]["gate_rate_loss"]
-                    loss = loss + 0.001 * output["gate_losses"]["gate_balance_loss"]
+                    gate_losses = output["gate_losses"]
+                    loss = loss + GATE_RATE_WEIGHT * gate_losses["gate_rate_loss"]
+                    loss = loss + GATE_BALANCE_WEIGHT * gate_losses["gate_balance_loss"]
+                    loss = loss + GATE_ENTROPY_WEIGHT * gate_losses["gate_entropy"]
+                    loss = loss + GATE_COMMITMENT_WEIGHT * gate_losses["gate_commitment_loss"]
+                    if "gate_teacher_bce_loss" in gate_losses:
+                        loss = loss + GATE_TEACHER_WEIGHT * gate_losses["gate_teacher_bce_loss"]
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"Non-finite loss at step {step}: {float(loss.detach().cpu())}")
             scaler.scale(loss).backward()

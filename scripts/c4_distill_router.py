@@ -22,9 +22,9 @@ def default_device() -> str:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Distill C4 FullSNNPathRouter gates into a lightweight router.")
-    parser.add_argument("--token-cache", type=str, default="c4_token_cache.pt")
-    parser.add_argument("--gate-cache", type=str, default="c4_gate_cache.pt")
-    parser.add_argument("--gate-feature-encoder", type=str, default="c4_gate_feature_encoder.pt")
+    parser.add_argument("--token-cache", type=str, default="runs/cache/c4_token_cache.pt")
+    parser.add_argument("--gate-cache", type=str, default="runs/cache/c4_gate_cache.pt")
+    parser.add_argument("--gate-feature-encoder", type=str, default="runs/cache/c4_gate_feature_encoder.pt")
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=5)
@@ -32,8 +32,8 @@ def parse_args():
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--device", type=str, default=default_device())
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--output-router", type=str, default="c4_lightweight_router.pt")
-    parser.add_argument("--output-report", type=str, default="c4_distill_report.json")
+    parser.add_argument("--output-router", type=str, default="runs/cache/c4_lightweight_router.pt")
+    parser.add_argument("--output-report", type=str, default="runs/reports/c4_distill_report.json")
     return parser.parse_args()
 
 
@@ -136,7 +136,9 @@ def main():
     }
     Path(args.output_router).parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, args.output_router)
-    Path(args.output_report).write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    report_path = Path(args.output_report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print("C4_DISTILL_PASS")
 
 

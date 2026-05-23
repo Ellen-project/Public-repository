@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument("--num-samples", type=int, default=1)
     parser.add_argument("--router-preset", type=str, default="")
     parser.add_argument("--gate-cache", type=str, default="")
-    parser.add_argument("--ssm-checkpoint", type=str, default="ssm_model.pt")
+    parser.add_argument("--ssm-checkpoint", type=str, default="runs/smoke/ssm_model.pt")
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--seed", type=int, default=1)
     return parser.parse_args()

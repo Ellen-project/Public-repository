@@ -46,13 +46,13 @@ def parse_args():
     parser.add_argument("--max-eval-batches", type=int, default=100)
     parser.add_argument("--token-cache", type=str, default=None)
     parser.add_argument("--gate-cache", type=str, default=None)
-    parser.add_argument("--router-preset", type=str, default="best_router_preset.npz")
-    parser.add_argument("--gate-feature-encoder", type=str, default="c4_gate_feature_encoder.pt")
+    parser.add_argument("--router-preset", type=str, default="runs/cache/best_router_preset.npz")
+    parser.add_argument("--gate-feature-encoder", type=str, default="runs/cache/c4_gate_feature_encoder.pt")
     parser.add_argument("--lightweight-router", type=str, default=None)
     parser.add_argument("--device", type=str, default=default_device())
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--output-report", type=str, default="c4_eval_report.json")
+    parser.add_argument("--output-report", type=str, default="runs/reports/c4_eval_report.json")
     return parser.parse_args()
 
 
@@ -194,7 +194,9 @@ def main():
             seed=args.seed,
         )
     if args.mode == "distilled_router":
-        router_path = args.lightweight_router or ("c4_lightweight_router.pt" if Path("c4_lightweight_router.pt").exists() else "lightweight_router.pt")
+        default_router = Path("runs/cache/c4_lightweight_router.pt")
+        fallback_router = Path("runs/cache/lightweight_router.pt")
+        router_path = args.lightweight_router or str(default_router if default_router.exists() else fallback_router)
         lightweight_router, lightweight_payload = load_c4_lightweight_router(router_path, map_location=device)
         lightweight_threshold = float(lightweight_payload.get("threshold", 0.5))
 
@@ -268,7 +270,9 @@ def main():
     else:
         report.update(gate_statistics(torch.zeros(1, 1, num_paths)))
 
-    Path(args.output_report).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report_path = Path(args.output_report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("C4_EVAL_PASS")
 
 

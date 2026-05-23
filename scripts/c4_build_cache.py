@@ -50,10 +50,10 @@ def parse_args():
     parser.add_argument("--num-paths", type=int, default=8)
     parser.add_argument("--rank", type=int, default=4)
     parser.add_argument("--state-dim", type=int, default=128)
-    parser.add_argument("--router-preset", type=str, default="best_router_preset.npz")
-    parser.add_argument("--output-token-cache", type=str, default="c4_token_cache.pt")
-    parser.add_argument("--output-gate-cache", type=str, default="c4_gate_cache.pt")
-    parser.add_argument("--output-gate-feature-encoder", type=str, default="c4_gate_feature_encoder.pt")
+    parser.add_argument("--router-preset", type=str, default="runs/cache/best_router_preset.npz")
+    parser.add_argument("--output-token-cache", type=str, default="runs/cache/c4_token_cache.pt")
+    parser.add_argument("--output-gate-cache", type=str, default="runs/cache/c4_gate_cache.pt")
+    parser.add_argument("--output-gate-feature-encoder", type=str, default="runs/cache/c4_gate_feature_encoder.pt")
     parser.add_argument("--streaming", dest="streaming", action="store_true", default=True)
     parser.add_argument("--no-streaming", dest="streaming", action="store_false")
     parser.add_argument("--shuffle-buffer", type=int, default=10000)
@@ -70,7 +70,7 @@ def parse_args():
     parser.add_argument("--max-zero-gate-ratio", type=float, default=0.35)
     parser.add_argument("--fail-if-bad-gate-stats", action="store_true")
     parser.add_argument("--auto-calibrate-router", action="store_true")
-    parser.add_argument("--calibrated-router-output", type=str, default="best_router_preset_auto.npz")
+    parser.add_argument("--calibrated-router-output", type=str, default="runs/cache/best_router_preset_auto.npz")
     return parser.parse_args()
 
 

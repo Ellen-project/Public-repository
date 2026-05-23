@@ -19,9 +19,9 @@ def parse_args():
     parser.add_argument("--state-dim", type=int, default=128)
     parser.add_argument("--seq-len", type=int, default=8)
     parser.add_argument("--num-samples", type=int, default=8)
-    parser.add_argument("--router-preset", type=str, default="best_router_preset.npz")
-    parser.add_argument("--gate-cache", type=str, default="gate_cache.npy")
-    parser.add_argument("--ssm-checkpoint", type=str, default="ssm_model.pt")
+    parser.add_argument("--router-preset", type=str, default="runs/cache/best_router_preset.npz")
+    parser.add_argument("--gate-cache", type=str, default="runs/cache/gate_cache.npy")
+    parser.add_argument("--ssm-checkpoint", type=str, default="runs/smoke/ssm_model.pt")
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--window-ms", type=float, default=0.1)
@@ -32,8 +32,8 @@ def parse_args():
     parser.add_argument("--scale-steps", type=int, default=5)
     parser.add_argument("--target-min", type=float, default=None)
     parser.add_argument("--target-max", type=float, default=None)
-    parser.add_argument("--report", type=str, default="calibration_report.json")
-    parser.add_argument("--best-preset", type=str, default="best_router_preset.npz")
+    parser.add_argument("--report", type=str, default="runs/reports/calibration_report.json")
+    parser.add_argument("--best-preset", type=str, default="runs/cache/best_router_preset.npz")
     return parser.parse_args()
 
 
@@ -107,7 +107,9 @@ def main():
         "candidates": entries,
         "best_router_preset": str(Path(args.best_preset)),
     }
-    Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report_path = Path(args.report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Calibration complete. Best current_scale={best_entry['current_scale']:.6g}")
     print(f"Wrote {args.report} and {args.best_preset}")
 
