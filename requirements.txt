@@ -1,0 +1,8 @@
+numpy
+torch
+tqdm
+transformers
+datasets
+
+# Optional GPU acceleration for the SNN router. Install the CuPy build that
+# matches your CUDA runtime, for example: cupy-cuda12x

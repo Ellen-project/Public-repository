@@ -1,3 +1,0 @@
-[submodule "src/vulkan/external/pybind11"]
-	path = src/vulkan/external/pybind11
-	url = https://github.com/pybind/pybind11.git

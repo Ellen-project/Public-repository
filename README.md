@@ -1,31 +1,29 @@
-<div align="center">
-  
-  # Neuromorphic AI porject.
-  
-A hybrid AI under development, inspired by neurons and synapses in the brain using SNN-based architecture.
-</div>
+# Neuromorphic AI
 
-## Usage
+Hybrid sequence-modeling experiments inspired by spiking neurons, synapses, and selective state-space models.
 
-### 1. Required Dependencies
-- Python 3.12.9 (or lower if needed)
-- CUDA Toolkit 12.8 (or lower if needed)
-- MSVC 2022
-- NVCC
+This project is not a reproduction of Mamba. The paper `2312.00752v2.pdf` is used as background for selective SSM ideas, while this repository explores an SNN-gated low-rank path SSM.
 
-### 2. Install Python Packages
-Install the required Python packages using:
+## Layout
 
-```
-pip3 install -r requirements.txt
-```
-## Build Kernel
-```
-python src/main.py --mode train_test --run-train --data modelData/trainData/shortTrain.txt --model-dir modelData/tokenizer --seq-len 8 --batch-size 1 --hidden1 32 --hidden2 32 --tbptt-len 4 --epochs 1 
+- `src/`: importable model and data code
+- `src/lrp_ssm/`: low-rank path SSM core, SNN router bridge, gate cache helpers
+- `src/snn/`: pyramidal-neuron SNN simulator
+- `src/lm/`: C4 language-model wrapper and C4 data utilities
+- `scripts/`: runnable training, evaluation, calibration, cache, and smoke-test entry points
+- `experiments/`: baseline comparisons, ablations, benchmarks, and generated reports
+
+## Quick Check
+
+Install dependencies first:
+
+```powershell
+pip install -r requirements.txt
 ```
 
-### ⚠️ If you get an error log
+Then run:
+
+```powershell
+python scripts/smoke_cpu.py
+python scripts/train_ssm_smoke.py --epochs 1 --num-samples 4 --seq-len 4
 ```
-ERROR: Could not find a version that satisfies the requirement torch==2.8.0+cu129 (from versions: 2.2.0, 2.2.1, 2.2.2, 2.3.0, 2.3.1, 2.4.0, 2.4.1, 2.5.0, 2.5.1, 2.6.0, 2.7.0, 2.7.1, 2.8.0)
-```
-visit [PyTorch](https://pytorch.org/) website and install the Stable (2.8.0) version with CUDA 12.8.
