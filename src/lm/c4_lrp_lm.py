@@ -243,6 +243,16 @@ def learned_gate_losses(
     return losses
 
 
+def cap_gate_topk(gates: torch.Tensor, scores: torch.Tensor, max_active_paths: int) -> torch.Tensor:
+    if gates.ndim != 3 or scores.shape != gates.shape:
+        raise ValueError("gates and scores must have matching shape [B, T, P]")
+    if max_active_paths <= 0 or max_active_paths >= gates.shape[-1]:
+        return gates
+    capped_idx = torch.topk(scores, k=int(max_active_paths), dim=-1).indices
+    mask = torch.zeros_like(gates).scatter(-1, capped_idx, 1.0)
+    return gates * mask
+
+
 def generate_snn_gates_for_input_ids(
     input_ids: torch.Tensor,
     gate_feature_encoder: nn.Embedding,
@@ -387,7 +397,7 @@ class C4LRPSSMLanguageModel(nn.Module):
         self.layer_norms = nn.ModuleList([nn.LayerNorm(self.model_dim) for _ in range(self.num_layers)])
         self.layer_dropouts = nn.ModuleList([nn.Dropout(self.dropout_p) for _ in range(self.num_layers)])
         if self.gate_mode in ("learned_sigmoid", "learned_topk_st", "hybrid_cached_plus_learned"):
-            router_mode = "topk_st" if self.gate_mode == "learned_topk_st" else "sigmoid"
+            router_mode = "sigmoid" if self.gate_mode == "learned_sigmoid" else "topk_st"
             self.learned_router = LearnedPathRouter(
                 input_dim=self.model_dim,
                 num_paths=self.num_paths,
@@ -518,7 +528,9 @@ class C4LRPSSMLanguageModel(nn.Module):
                 if cached_gates is None:
                     gates = learned_gate
                 else:
-                    gates = torch.maximum(cached_gates, learned_gate)
+                    merged = torch.maximum(cached_gates, learned_gate)
+                    hybrid_scores = learned_probs + cached_gates.to(device=learned_probs.device, dtype=learned_probs.dtype)
+                    gates = cap_gate_topk(merged, hybrid_scores, self.router_topk)
             else:
                 gates = learned_gate
 

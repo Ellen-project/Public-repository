@@ -26,7 +26,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Generate experiment Markdown report.")
     parser.add_argument("--results-dir", type=str, default="experiments/results")
     parser.add_argument("--runs-dir", type=str, default="experiments/runs")
-    parser.add_argument("--output", type=str, default="experiments/REPORT.md")
+    parser.add_argument("--output", type=str, default="experiments/TEST_RESULTS/REPORT.md")
     parser.add_argument("--include-raw-tables", action="store_true")
     parser.add_argument("--include-lrp-fix-analysis", action="store_true")
     parser.add_argument("--ablation-report", type=str, default=None)
@@ -37,7 +37,7 @@ def parse_args():
 def read_json(path: Path, default=None):
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def fmt(value: Any, digits: int = 4) -> str:
@@ -341,9 +341,10 @@ def generate_report(args) -> Path:
     if args.include_lrp_fix_analysis:
         ablation = read_json(level_path(args.ablation_report)) if args.ablation_report else None
         old_text_available = bool(args.old_report and level_path(args.old_report).exists())
-        old_lrp = latest_summary_for_prefix(runs_dir, "lrp_ssm")
+        old_lrp = models.get("lrp_ssm", {})
         fixed_lrp = models.get("lrp_ssm_fixed_calibrated", {})
         learned_lrp = models.get("lrp_ssm_learned_router", {})
+        hybrid_lrp = models.get("lrp_ssm_hybrid", {})
         old_gate_meta = read_torch_metadata("experiments/c4_gate_cache_medium.pt")
         new_gate_meta = read_torch_metadata(experiment.get("gate_cache"))
         fix_rows = []
@@ -395,9 +396,9 @@ def generate_report(args) -> Path:
                     ],
                     [
                         "after_fixed_calibrated",
-                        new_gate_meta.get("mean_active_paths", fixed_lrp.get("mean_active_paths")),
-                        new_gate_meta.get("zero_gate_ratio", fixed_lrp.get("zero_gate_ratio")),
-                        new_gate_meta.get("all_on_gate_ratio", fixed_lrp.get("all_on_gate_ratio")),
+                        fixed_lrp.get("mean_active_paths", new_gate_meta.get("mean_active_paths")),
+                        fixed_lrp.get("zero_gate_ratio", new_gate_meta.get("zero_gate_ratio")),
+                        fixed_lrp.get("all_on_gate_ratio", new_gate_meta.get("all_on_gate_ratio")),
                         new_gate_meta.get("router_input_dim"),
                         new_gate_meta.get("model_dim"),
                         new_gate_meta.get("current_scale"),
@@ -409,6 +410,15 @@ def generate_report(args) -> Path:
                         learned_lrp.get("all_on_gate_ratio"),
                         "learned",
                         learned_lrp.get("config", {}).get("model_dim"),
+                        "n/a",
+                    ],
+                    [
+                        "after_hybrid",
+                        hybrid_lrp.get("mean_active_paths"),
+                        hybrid_lrp.get("zero_gate_ratio"),
+                        hybrid_lrp.get("all_on_gate_ratio"),
+                        "cached+learned",
+                        hybrid_lrp.get("config", {}).get("model_dim"),
                         "n/a",
                     ],
                 ],

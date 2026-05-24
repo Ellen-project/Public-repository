@@ -378,14 +378,32 @@ def train_model(args) -> dict:
             "run_dir": str(run_dir),
             "report_generated_at": datetime.now().isoformat(timespec="seconds"),
         }
-        if args.model in LRP_MODELS and gates is not None:
-            summary.update(gate_diagnostics(gates))
         if metrics_path.exists():
             last_line = metrics_path.read_text(encoding="utf-8").strip().splitlines()[-1]
             last_metrics = json.loads(last_line)
-            for key in ("mean_active_paths", "zero_gate_ratio", "all_on_gate_ratio", "learned_mean_active_paths", "learned_zero_gate_ratio"):
-                if key in last_metrics and key not in summary:
+            for key in (
+                "mean_active_paths",
+                "zero_gate_ratio",
+                "all_on_gate_ratio",
+                "learned_mean_active_paths",
+                "learned_zero_gate_ratio",
+                "learned_all_on_gate_ratio",
+                "learned_path_rate_min",
+                "learned_path_rate_max",
+                "learned_path_rate_std",
+                "cached_mean_active_paths",
+                "cached_zero_gate_ratio",
+                "cached_all_on_gate_ratio",
+                "gate_rate_loss",
+                "gate_balance_loss",
+                "gate_entropy",
+                "gate_commitment_loss",
+                "gate_teacher_bce_loss",
+            ):
+                if key in last_metrics:
                     summary[key] = last_metrics[key]
+        elif args.model in LRP_MODELS and gates is not None:
+            summary.update(gate_diagnostics(gates))
         write_json(run_dir / "summary.json", summary)
         return summary
     except RuntimeError as exc:

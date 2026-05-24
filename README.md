@@ -27,3 +27,10 @@ python scripts/train_ssm_smoke.py --epochs 1 --num-samples 4 --seq-len 4
 ```
 
 Generated smoke artifacts, C4 caches, checkpoints, and reports are written under `runs/` by default.
+
+Gate-learning experiments can be run as a managed batch:
+
+```powershell
+python scripts/run_gate_experiments.py --max-train-steps 100 --batch-size 2 --block-size 32
+python scripts/summarize_gate_experiments.py
+```

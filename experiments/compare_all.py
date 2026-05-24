@@ -272,9 +272,9 @@ def run_all(args) -> dict:
     }
     write_json(results_dir / "comparison_summary.json", comparison)
     has_fix_models = any(name.startswith("lrp_ssm_") for name in model_list(args.models))
-    report_output = "experiments/LRP_FIX_REPORT.md" if has_fix_models else "experiments/REPORT.md"
-    if report_output == "experiments/REPORT.md" and level_path(report_output).exists():
-        report_output = "experiments/REPORT_latest.md"
+    report_output = "experiments/TEST_RESULTS/LRP_FIX_REPORT.md" if has_fix_models else "experiments/TEST_RESULTS/REPORT.md"
+    if report_output == "experiments/TEST_RESULTS/REPORT.md" and level_path(report_output).exists():
+        report_output = "experiments/TEST_RESULTS/REPORT_latest.md"
     generate_report(
         Namespace(
             results_dir=args.results_dir,
@@ -283,7 +283,7 @@ def run_all(args) -> dict:
             include_raw_tables=False,
             include_lrp_fix_analysis=has_fix_models,
             ablation_report=None,
-            old_report="experiments/REPORT.md",
+            old_report="experiments/TEST_RESULTS/REPORT.md",
         )
     )
     return comparison
