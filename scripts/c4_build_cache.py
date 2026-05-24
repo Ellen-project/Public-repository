@@ -67,9 +67,20 @@ def parse_args():
     parser.add_argument("--allow-adapt-preset", action="store_true")
     parser.add_argument("--target-min-active", type=float, default=1.0)
     parser.add_argument("--target-max-active", type=float, default=2.0)
+    parser.add_argument("--target-active", type=float, default=None)
     parser.add_argument("--max-zero-gate-ratio", type=float, default=0.35)
     parser.add_argument("--fail-if-bad-gate-stats", action="store_true")
     parser.add_argument("--auto-calibrate-router", action="store_true")
+    parser.add_argument("--calibration-samples", type=int, default=128)
+    parser.add_argument("--calibration-scale-min", type=float, default=1e-4)
+    parser.add_argument("--calibration-scale-max", type=float, default=1e-1)
+    parser.add_argument("--calibration-scale-steps", type=int, default=9)
+    parser.add_argument("--calibration-seed-count", type=int, default=1)
+    parser.add_argument("--calibration-seeds", type=str, default=None)
+    parser.add_argument("--calibration-current-clip", type=float, default=1e-4)
+    parser.add_argument("--calibration-window-ms", type=float, default=1.0)
+    parser.add_argument("--calibration-dt", type=float, default=0.025)
+    parser.add_argument("--path-balance-weight", type=float, default=0.25)
     parser.add_argument("--calibrated-router-output", type=str, default="runs/cache/best_router_preset_auto.npz")
     return parser.parse_args()
 
@@ -184,12 +195,18 @@ def main():
             num_paths=args.num_paths,
             target_min_active=args.target_min_active,
             target_max_active=args.target_max_active,
-            window_ms=1.0,
-            dt=0.025,
-            current_clip=1e-4,
-            scale_min=1e-4,
-            scale_max=1e-1,
-            scale_steps=9,
+            target_active=args.target_active,
+            max_zero_gate_ratio=args.max_zero_gate_ratio,
+            calibration_samples=args.calibration_samples,
+            window_ms=args.calibration_window_ms,
+            dt=args.calibration_dt,
+            current_clip=args.calibration_current_clip,
+            scale_min=args.calibration_scale_min,
+            scale_max=args.calibration_scale_max,
+            scale_steps=args.calibration_scale_steps,
+            calibration_seed_count=args.calibration_seed_count,
+            calibration_seeds=args.calibration_seeds,
+            path_balance_weight=args.path_balance_weight,
             n_basal=1,
             n_apical=1,
             n_tuft=1,
@@ -265,7 +282,16 @@ def main():
         "dt": router.dt,
         "target_min_active": float(args.target_min_active),
         "target_max_active": float(args.target_max_active),
+        "target_active": None if args.target_active is None else float(args.target_active),
         "max_zero_gate_ratio": float(args.max_zero_gate_ratio),
+        "auto_calibrate_router": bool(args.auto_calibrate_router),
+        "calibration_samples": int(args.calibration_samples),
+        "calibration_seed_count": int(args.calibration_seed_count),
+        "calibration_seeds": args.calibration_seeds,
+        "calibration_current_clip": float(args.calibration_current_clip),
+        "calibration_window_ms": float(args.calibration_window_ms),
+        "calibration_dt": float(args.calibration_dt),
+        "path_balance_weight": float(args.path_balance_weight),
         "router_input_dim": int(router.input_dim),
         "strict_input_dim": bool(args.strict_router_input_dim),
         "allow_adapt_preset": bool(args.allow_adapt_preset),

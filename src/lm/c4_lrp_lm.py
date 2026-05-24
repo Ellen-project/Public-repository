@@ -334,6 +334,16 @@ class C4LRPSSMLanguageModel(nn.Module):
         path_dropout: float = 0.0,
         force_min_active_paths: int = 0,
         topk_fallback: int = 0,
+        gate_conditioned_decay: bool = False,
+        gate_decay_scale: float = 1.0,
+        gate_conditioned_gamma: bool = False,
+        gate_gamma_scale: float = 1.0,
+        gate_gamma_min: float = 0.1,
+        gate_gamma_max: float = 4.0,
+        gate_floor: float = 0.0,
+        gate_temperature: float = 1.0,
+        gate_dropout: float = 0.0,
+        use_path_bias: bool = False,
         gate_mode: str = "cached_snn",
         router_hidden_dim: int = 128,
         router_temperature: float = 1.0,
@@ -362,6 +372,16 @@ class C4LRPSSMLanguageModel(nn.Module):
         self.path_dropout_p = float(path_dropout)
         self.force_min_active_paths = int(force_min_active_paths)
         self.topk_fallback = int(topk_fallback)
+        self.gate_conditioned_decay = bool(gate_conditioned_decay)
+        self.gate_decay_scale = float(gate_decay_scale)
+        self.gate_conditioned_gamma = bool(gate_conditioned_gamma)
+        self.gate_gamma_scale = float(gate_gamma_scale)
+        self.gate_gamma_min = float(gate_gamma_min)
+        self.gate_gamma_max = float(gate_gamma_max)
+        self.gate_floor = float(gate_floor)
+        self.gate_temperature = float(gate_temperature)
+        self.gate_dropout = float(gate_dropout)
+        self.use_path_bias = bool(use_path_bias)
         self.gate_mode = str(gate_mode)
         self.router_hidden_dim = int(router_hidden_dim)
         self.router_temperature = float(router_temperature)
@@ -390,6 +410,16 @@ class C4LRPSSMLanguageModel(nn.Module):
             "path_dropout": self.path_dropout_p,
             "force_min_active_paths": self.force_min_active_paths,
             "topk_fallback": self.topk_fallback,
+            "gate_conditioned_decay": self.gate_conditioned_decay,
+            "gate_decay_scale": self.gate_decay_scale,
+            "gate_conditioned_gamma": self.gate_conditioned_gamma,
+            "gate_gamma_scale": self.gate_gamma_scale,
+            "gate_gamma_min": self.gate_gamma_min,
+            "gate_gamma_max": self.gate_gamma_max,
+            "gate_floor": self.gate_floor,
+            "gate_temperature": self.gate_temperature,
+            "gate_dropout": self.gate_dropout,
+            "use_path_bias": self.use_path_bias,
         }
         self.ssm_layers = nn.ModuleList([LowRankPathSSMCore(**core_kwargs) for _ in range(self.num_layers)])
         self.ssm_core = self.ssm_layers[0]
@@ -433,6 +463,16 @@ class C4LRPSSMLanguageModel(nn.Module):
             "path_dropout": self.path_dropout_p,
             "force_min_active_paths": self.force_min_active_paths,
             "topk_fallback": self.topk_fallback,
+            "gate_conditioned_decay": self.gate_conditioned_decay,
+            "gate_decay_scale": self.gate_decay_scale,
+            "gate_conditioned_gamma": self.gate_conditioned_gamma,
+            "gate_gamma_scale": self.gate_gamma_scale,
+            "gate_gamma_min": self.gate_gamma_min,
+            "gate_gamma_max": self.gate_gamma_max,
+            "gate_floor": self.gate_floor,
+            "gate_temperature": self.gate_temperature,
+            "gate_dropout": self.gate_dropout,
+            "use_path_bias": self.use_path_bias,
             "gate_mode": self.gate_mode,
             "router_hidden_dim": self.router_hidden_dim,
             "router_temperature": self.router_temperature,
@@ -567,6 +607,12 @@ class C4LRPSSMLanguageModel(nn.Module):
         path_to_base_ratios: List[torch.Tensor] = []
         gammas: List[torch.Tensor] = []
         active_paths: List[torch.Tensor] = []
+        alpha_means: List[torch.Tensor] = []
+        gate_decay_delta_norms: List[torch.Tensor] = []
+        gate_gamma_delta_norms: List[torch.Tensor] = []
+        gate_gamma_multiplier_means: List[torch.Tensor] = []
+        gate_input_means: List[torch.Tensor] = []
+        path_bias_norms: List[torch.Tensor] = []
 
         for t in range(seq_len):
             z = x[:, t]
@@ -581,6 +627,17 @@ class C4LRPSSMLanguageModel(nn.Module):
                     path_to_base_ratios.append(diag["path_to_base_ratio"])
                     gammas.append(diag["gamma"])
                     active_paths.append(diag["active_paths"])
+                    alpha_means.append(diag["alpha_mean"])
+                    if "gate_decay_delta_norm" in diag:
+                        gate_decay_delta_norms.append(diag["gate_decay_delta_norm"])
+                    if "gate_gamma_delta_norm" in diag:
+                        gate_gamma_delta_norms.append(diag["gate_gamma_delta_norm"])
+                    if "gate_gamma_multiplier_mean" in diag:
+                        gate_gamma_multiplier_means.append(diag["gate_gamma_multiplier_mean"])
+                    if "gate_input_mean" in diag:
+                        gate_input_means.append(diag["gate_input_mean"])
+                    if "path_bias_norm" in diag:
+                        path_bias_norms.append(diag["path_bias_norm"])
                 else:
                     y_l, states[layer_idx] = layer.step(z, states[layer_idx], gate_t)
                 if self.lrp_residual:
@@ -619,6 +676,12 @@ class C4LRPSSMLanguageModel(nn.Module):
                 "base_update_norm_mean": float(torch.cat(base_update_norms).mean().item()) if base_update_norms else 0.0,
                 "path_to_base_ratio_mean": float(torch.cat(path_to_base_ratios).mean().item()) if path_to_base_ratios else 0.0,
                 "gamma": float(torch.cat(gammas).mean().item()) if gammas else 0.0,
+                "alpha_mean": float(torch.cat(alpha_means).mean().item()) if alpha_means else 0.0,
+                "gate_decay_delta_norm_mean": float(torch.cat(gate_decay_delta_norms).mean().item()) if gate_decay_delta_norms else 0.0,
+                "gate_gamma_delta_norm_mean": float(torch.cat(gate_gamma_delta_norms).mean().item()) if gate_gamma_delta_norms else 0.0,
+                "gate_gamma_multiplier_mean": float(torch.cat(gate_gamma_multiplier_means).mean().item()) if gate_gamma_multiplier_means else 0.0,
+                "gate_input_mean": float(torch.cat(gate_input_means).mean().item()) if gate_input_means else 0.0,
+                "path_bias_norm": float(torch.cat(path_bias_norms).mean().item()) if path_bias_norms else 0.0,
                 "active_paths_diagnostic_mean": float(torch.cat(active_paths).mean().item()) if active_paths else 0.0,
                 "batch_size": int(batch_size),
                 "seq_len": int(seq_len),

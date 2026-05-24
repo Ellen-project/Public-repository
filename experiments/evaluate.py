@@ -23,7 +23,13 @@ from models import count_parameters, model_factory, perplexity
 from train_one import autocast_context, cuda_sync, level_path, peak_memory_mb
 
 
-LRP_MODELS = {"lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid"}
+LRP_MODELS = {
+    "lrp_ssm",
+    "lrp_ssm_fixed_calibrated",
+    "lrp_ssm_learned_router",
+    "lrp_ssm_hybrid",
+    "lrp_ssm_strong_path_bias_decay",
+}
 
 
 def default_device() -> str:
@@ -32,7 +38,21 @@ def default_device() -> str:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate one experiment checkpoint.")
-    parser.add_argument("--model", choices=["lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid", "transformer", "linear_attention", "local_attention", "gru"], required=True)
+    parser.add_argument(
+        "--model",
+        choices=[
+            "lrp_ssm",
+            "lrp_ssm_fixed_calibrated",
+            "lrp_ssm_learned_router",
+            "lrp_ssm_hybrid",
+            "lrp_ssm_strong_path_bias_decay",
+            "transformer",
+            "linear_attention",
+            "local_attention",
+            "gru",
+        ],
+        required=True,
+    )
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--token-cache", type=str, default="../c4_token_cache.pt")
     parser.add_argument("--gate-cache", type=str, default="../c4_gate_cache.pt")

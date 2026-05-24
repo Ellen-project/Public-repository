@@ -66,6 +66,16 @@ def parse_args():
     parser.add_argument("--path-dropout", type=float, default=0.0)
     parser.add_argument("--force-min-active-paths", type=int, default=0)
     parser.add_argument("--topk-fallback", type=int, default=0)
+    parser.add_argument("--gate-conditioned-decay", action="store_true")
+    parser.add_argument("--gate-decay-scale", type=float, default=1.0)
+    parser.add_argument("--gate-conditioned-gamma", action="store_true")
+    parser.add_argument("--gate-gamma-scale", type=float, default=1.0)
+    parser.add_argument("--gate-gamma-min", type=float, default=0.1)
+    parser.add_argument("--gate-gamma-max", type=float, default=4.0)
+    parser.add_argument("--gate-floor", type=float, default=0.0)
+    parser.add_argument("--gate-temperature", type=float, default=1.0)
+    parser.add_argument("--gate-dropout", type=float, default=0.0)
+    parser.add_argument("--use-path-bias", action="store_true")
     parser.add_argument("--gate-mode", choices=["cached_snn", "learned_sigmoid", "learned_topk_st", "hybrid_cached_plus_learned"], default="cached_snn")
     parser.add_argument("--target-active-paths", type=float, default=1.5)
     parser.add_argument("--gate-loss-weight", type=float, default=0.01)
@@ -253,10 +263,11 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.mode == "online_snn" and args.batch_size != 1:
-        raise ValueError("online_snn mode is smoke/debug only and requires --batch-size 1")
     if args.mode == "online_snn":
-        print("WARNING: online_snn mode runs FullSNNPathRouter inside the train loop and is intentionally slow.")
+        print(
+            "WARNING: online_snn mode generates FullSNNPathRouter gates inside the train loop. "
+            "Batch sizes >1 are supported by sequential per-sample routing, but this is intentionally slow."
+        )
 
     token_metadata = {}
     gates = None
@@ -309,6 +320,16 @@ def main():
         "path_dropout": float(args.path_dropout),
         "force_min_active_paths": int(args.force_min_active_paths),
         "topk_fallback": int(args.topk_fallback),
+        "gate_conditioned_decay": bool(args.gate_conditioned_decay),
+        "gate_decay_scale": float(args.gate_decay_scale),
+        "gate_conditioned_gamma": bool(args.gate_conditioned_gamma),
+        "gate_gamma_scale": float(args.gate_gamma_scale),
+        "gate_gamma_min": float(args.gate_gamma_min),
+        "gate_gamma_max": float(args.gate_gamma_max),
+        "gate_floor": float(args.gate_floor),
+        "gate_temperature": float(args.gate_temperature),
+        "gate_dropout": float(args.gate_dropout),
+        "use_path_bias": bool(args.use_path_bias),
         "gate_mode": args.gate_mode,
         "target_active_paths": float(args.target_active_paths),
         "router_hidden_dim": int(args.router_hidden_dim),
@@ -344,7 +365,7 @@ def main():
             subset=args.subset,
             split=args.train_split,
             block_size=args.block_size,
-            batch_size=1,
+            batch_size=args.batch_size,
             streaming=True if not args.streaming else args.streaming,
             shuffle_buffer=args.shuffle_buffer,
             max_samples=args.max_train_samples,

@@ -23,7 +23,13 @@ from data import load_gate_cache, load_token_cache, make_dataloader, resolve_pro
 from models import count_parameters, gate_diagnostics, model_factory, perplexity
 
 
-LRP_MODELS = {"lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid"}
+LRP_MODELS = {
+    "lrp_ssm",
+    "lrp_ssm_fixed_calibrated",
+    "lrp_ssm_learned_router",
+    "lrp_ssm_hybrid",
+    "lrp_ssm_strong_path_bias_decay",
+}
 GATE_RATE_WEIGHT = 0.01
 GATE_BALANCE_WEIGHT = 0.001
 GATE_ENTROPY_WEIGHT = 0.001
@@ -79,7 +85,21 @@ def peak_memory_mb(device: torch.device) -> float:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train one experiment model.")
-    parser.add_argument("--model", choices=["lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid", "transformer", "linear_attention", "local_attention", "gru"], required=True)
+    parser.add_argument(
+        "--model",
+        choices=[
+            "lrp_ssm",
+            "lrp_ssm_fixed_calibrated",
+            "lrp_ssm_learned_router",
+            "lrp_ssm_hybrid",
+            "lrp_ssm_strong_path_bias_decay",
+            "transformer",
+            "linear_attention",
+            "local_attention",
+            "gru",
+        ],
+        required=True,
+    )
     parser.add_argument("--token-cache", type=str, default="../c4_token_cache.pt")
     parser.add_argument("--gate-cache", type=str, default="../c4_gate_cache.pt")
     parser.add_argument("--output-dir", type=str, default="experiments/runs")
@@ -97,6 +117,16 @@ def parse_args():
     parser.add_argument("--device", type=str, default=default_device())
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--compile", action="store_true")
+    parser.add_argument("--gate-conditioned-decay", action="store_true")
+    parser.add_argument("--gate-decay-scale", type=float, default=1.0)
+    parser.add_argument("--gate-conditioned-gamma", action="store_true")
+    parser.add_argument("--gate-gamma-scale", type=float, default=1.0)
+    parser.add_argument("--gate-gamma-min", type=float, default=0.1)
+    parser.add_argument("--gate-gamma-max", type=float, default=4.0)
+    parser.add_argument("--gate-floor", type=float, default=0.0)
+    parser.add_argument("--gate-temperature", type=float, default=1.0)
+    parser.add_argument("--gate-dropout", type=float, default=0.0)
+    parser.add_argument("--use-path-bias", action="store_true")
     return parser.parse_args()
 
 
@@ -124,12 +154,34 @@ def base_config(model_name: str, token_metadata: dict, args) -> Dict[str, Any]:
     if model_name in LRP_MODELS:
         cfg.update({"state_dim": 128, "num_paths": 8, "rank": 4, "tie_weights": False})
         cfg.update({"num_layers": cfg.get("num_layers", 4), "gamma_init": 0.1})
+        cfg.update(
+            {
+                "gate_conditioned_decay": bool(args.gate_conditioned_decay),
+                "gate_decay_scale": float(args.gate_decay_scale),
+                "gate_conditioned_gamma": bool(args.gate_conditioned_gamma),
+                "gate_gamma_scale": float(args.gate_gamma_scale),
+                "gate_gamma_min": float(args.gate_gamma_min),
+                "gate_gamma_max": float(args.gate_gamma_max),
+                "gate_floor": float(args.gate_floor),
+                "gate_temperature": float(args.gate_temperature),
+                "gate_dropout": float(args.gate_dropout),
+                "use_path_bias": bool(args.use_path_bias),
+            }
+        )
     if model_name == "lrp_ssm_fixed_calibrated":
         cfg.update({"gate_mode": "cached_snn", "force_min_active_paths": 1, "topk_fallback": 1})
     if model_name == "lrp_ssm_learned_router":
         cfg.update({"gate_mode": "learned_topk_st", "target_active_paths": 1.5, "router_topk": 2})
     if model_name == "lrp_ssm_hybrid":
         cfg.update({"gate_mode": "hybrid_cached_plus_learned", "target_active_paths": 1.5, "router_topk": 2, "force_min_active_paths": 1})
+    if model_name == "lrp_ssm_strong_path_bias_decay":
+        cfg.update(
+            {
+                "gate_mode": "cached_snn",
+                "gate_conditioned_decay": True,
+                "use_path_bias": True,
+            }
+        )
     if model_name == "local_attention":
         cfg["window_size"] = min(64, block_size)
     if model_name == "gru":

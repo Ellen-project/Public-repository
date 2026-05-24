@@ -47,6 +47,16 @@ def parse_args():
     parser.add_argument("--num-layers", type=int, default=4)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--gate-conditioned-decay", action="store_true")
+    parser.add_argument("--gate-decay-scale", type=float, default=1.0)
+    parser.add_argument("--gate-conditioned-gamma", action="store_true")
+    parser.add_argument("--gate-gamma-scale", type=float, default=1.0)
+    parser.add_argument("--gate-gamma-min", type=float, default=0.1)
+    parser.add_argument("--gate-gamma-max", type=float, default=4.0)
+    parser.add_argument("--gate-floor", type=float, default=0.0)
+    parser.add_argument("--gate-temperature", type=float, default=1.0)
+    parser.add_argument("--gate-dropout", type=float, default=0.0)
+    parser.add_argument("--use-path-bias", action="store_true")
     parser.add_argument("--local-window-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
@@ -86,9 +96,22 @@ def make_configs(args, token_metadata: dict) -> dict[str, Path]:
         "max_seq_len": block_size,
         "pad_token_id": pad_token_id,
     }
+    lrp_common = {
+        "gate_conditioned_decay": bool(args.gate_conditioned_decay),
+        "gate_decay_scale": float(args.gate_decay_scale),
+        "gate_conditioned_gamma": bool(args.gate_conditioned_gamma),
+        "gate_gamma_scale": float(args.gate_gamma_scale),
+        "gate_gamma_min": float(args.gate_gamma_min),
+        "gate_gamma_max": float(args.gate_gamma_max),
+        "gate_floor": float(args.gate_floor),
+        "gate_temperature": float(args.gate_temperature),
+        "gate_dropout": float(args.gate_dropout),
+        "use_path_bias": bool(args.use_path_bias),
+    }
     configs: dict[str, dict[str, Any]] = {
         "lrp_ssm": {
             **common,
+            **lrp_common,
             "state_dim": int(args.state_dim),
             "num_paths": int(args.num_paths),
             "rank": int(args.rank),
@@ -98,6 +121,7 @@ def make_configs(args, token_metadata: dict) -> dict[str, Path]:
         },
         "lrp_ssm_fixed_calibrated": {
             **common,
+            **lrp_common,
             "state_dim": int(args.state_dim),
             "num_paths": int(args.num_paths),
             "rank": int(args.rank),
@@ -110,6 +134,7 @@ def make_configs(args, token_metadata: dict) -> dict[str, Path]:
         },
         "lrp_ssm_learned_router": {
             **common,
+            **lrp_common,
             "state_dim": int(args.state_dim),
             "num_paths": int(args.num_paths),
             "rank": int(args.rank),
@@ -123,6 +148,7 @@ def make_configs(args, token_metadata: dict) -> dict[str, Path]:
         },
         "lrp_ssm_hybrid": {
             **common,
+            **lrp_common,
             "state_dim": int(args.state_dim),
             "num_paths": int(args.num_paths),
             "rank": int(args.rank),
@@ -134,6 +160,20 @@ def make_configs(args, token_metadata: dict) -> dict[str, Path]:
             "target_active_paths": 1.5,
             "router_topk": 2,
             "router_hidden_dim": max(64, int(args.model_dim) * 2)
+        },
+        "lrp_ssm_strong_path_bias_decay": {
+            **common,
+            **lrp_common,
+            "state_dim": int(args.state_dim),
+            "num_paths": int(args.num_paths),
+            "rank": int(args.rank),
+            "tie_weights": False,
+            "num_layers": int(args.num_layers),
+            "gamma_init": 0.1,
+            "gate_mode": "cached_snn",
+            "gate_conditioned_decay": True,
+            "use_path_bias": True,
+            "notes": "Use with strong-router cached gates calibrated around 1.0-1.5 active paths.",
         },
         "transformer": dict(common),
         "linear_attention": {**common, "notes": "simplified ELU+1 causal prefix linear attention"},
@@ -253,6 +293,16 @@ def run_all(args) -> dict:
             "num_layers": int(args.num_layers),
             "num_heads": int(args.num_heads),
             "dropout": float(args.dropout),
+            "gate_conditioned_decay": bool(args.gate_conditioned_decay),
+            "gate_decay_scale": float(args.gate_decay_scale),
+            "gate_conditioned_gamma": bool(args.gate_conditioned_gamma),
+            "gate_gamma_scale": float(args.gate_gamma_scale),
+            "gate_gamma_min": float(args.gate_gamma_min),
+            "gate_gamma_max": float(args.gate_gamma_max),
+            "gate_floor": float(args.gate_floor),
+            "gate_temperature": float(args.gate_temperature),
+            "gate_dropout": float(args.gate_dropout),
+            "use_path_bias": bool(args.use_path_bias),
             "local_window_size": int(args.local_window_size),
             "lr": float(args.lr),
             "weight_decay": float(args.weight_decay),

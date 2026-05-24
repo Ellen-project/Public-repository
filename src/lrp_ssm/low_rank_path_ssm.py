@@ -296,7 +296,7 @@ class LowRankPathSSMCore(nn.Module):
     """
     Low-rank path SSM core.
 
-    h_t = alpha * h_{t-1} + B x_t + gamma * sum_p gate_p U_p phi(V_p h + E_p x)
+    h_t = alpha_t * h_{t-1} + B x_t + gamma * sum_p gate_p U_p phi(V_p h + E_p x)
     y_t = C h_t + D x_t
     """
 
@@ -319,6 +319,16 @@ class LowRankPathSSMCore(nn.Module):
         path_dropout: float = 0.0,
         force_min_active_paths: int = 0,
         topk_fallback: int = 0,
+        gate_conditioned_decay: bool = False,
+        gate_decay_scale: float = 1.0,
+        gate_conditioned_gamma: bool = False,
+        gate_gamma_scale: float = 1.0,
+        gate_gamma_min: float = 0.1,
+        gate_gamma_max: float = 4.0,
+        gate_floor: float = 0.0,
+        gate_temperature: float = 1.0,
+        gate_dropout: float = 0.0,
+        use_path_bias: bool = False,
     ):
         super().__init__()
         if input_dim <= 0:
@@ -344,22 +354,58 @@ class LowRankPathSSMCore(nn.Module):
         self.use_path_norm = bool(use_path_norm)
         self.force_min_active_paths = int(force_min_active_paths)
         self.topk_fallback = int(topk_fallback)
+        self.gate_conditioned_decay = bool(gate_conditioned_decay)
+        self.gate_decay_scale = float(gate_decay_scale)
+        self.gate_conditioned_gamma = bool(gate_conditioned_gamma)
+        self.gate_gamma_scale = float(gate_gamma_scale)
+        self.gate_gamma_min = float(gate_gamma_min)
+        self.gate_gamma_max = float(gate_gamma_max)
+        self.gate_floor = float(gate_floor)
+        self.gate_temperature = float(gate_temperature)
+        self.gate_dropout = float(gate_dropout)
+        self.use_path_bias = bool(use_path_bias)
         if self.gamma_max <= self.gamma_min:
             raise ValueError("gamma_max must be greater than gamma_min")
         if self.force_min_active_paths < 0:
             raise ValueError("force_min_active_paths must be non-negative")
         if self.topk_fallback < 0:
             raise ValueError("topk_fallback must be non-negative")
+        if self.gate_decay_scale < 0.0:
+            raise ValueError("gate_decay_scale must be non-negative")
+        if self.gate_gamma_scale < 0.0:
+            raise ValueError("gate_gamma_scale must be non-negative")
+        if self.gate_gamma_min <= 0.0:
+            raise ValueError("gate_gamma_min must be positive")
+        if self.gate_gamma_max <= self.gate_gamma_min:
+            raise ValueError("gate_gamma_max must be greater than gate_gamma_min")
+        if not 0.0 <= self.gate_floor < 1.0:
+            raise ValueError("gate_floor must be in [0, 1)")
+        if self.gate_temperature <= 0.0:
+            raise ValueError("gate_temperature must be positive")
+        if not 0.0 <= self.gate_dropout < 1.0:
+            raise ValueError("gate_dropout must be in [0, 1)")
 
         self.U = nn.Parameter(torch.randn(num_paths, state_dim, rank) * init_scale)
         self.V = nn.Parameter(torch.randn(num_paths, rank, state_dim) * init_scale)
         self.E = nn.Parameter(torch.randn(num_paths, rank, input_dim) * init_scale)
+        if self.use_path_bias:
+            self.path_bias = nn.Parameter(torch.zeros(num_paths, rank))
+        else:
+            self.register_parameter("path_bias", None)
 
         self.B = nn.Linear(input_dim, state_dim, bias=False)
         self.C = nn.Linear(state_dim, self.output_dim, bias=False)
         self.D = nn.Linear(input_dim, self.output_dim, bias=False) if use_direct_output else None
 
         self.log_decay = nn.Parameter(torch.zeros(state_dim))
+        if self.gate_conditioned_decay:
+            self.gate_decay_proj = nn.Parameter(torch.zeros(num_paths, state_dim))
+        else:
+            self.register_parameter("gate_decay_proj", None)
+        if self.gate_conditioned_gamma:
+            self.gate_gamma_proj = nn.Parameter(torch.zeros(num_paths, state_dim))
+        else:
+            self.register_parameter("gate_gamma_proj", None)
         gamma_frac = (float(gamma_init) - self.gamma_min) / (self.gamma_max - self.gamma_min)
         gamma_frac = min(max(gamma_frac, 1e-6), 1.0 - 1e-6)
         raw_gamma = math.log(gamma_frac / (1.0 - gamma_frac))
@@ -395,6 +441,18 @@ class LowRankPathSSMCore(nn.Module):
         for key in (prefix + "path_norm.weight", prefix + "path_norm.bias"):
             if key in missing_keys:
                 missing_keys.remove(key)
+        if self.gate_decay_proj is not None:
+            key = prefix + "gate_decay_proj"
+            if key in missing_keys:
+                missing_keys.remove(key)
+        if self.gate_gamma_proj is not None:
+            key = prefix + "gate_gamma_proj"
+            if key in missing_keys:
+                missing_keys.remove(key)
+        if self.path_bias is not None:
+            key = prefix + "path_bias"
+            if key in missing_keys:
+                missing_keys.remove(key)
 
     def initial_state(
         self,
@@ -424,12 +482,22 @@ class LowRankPathSSMCore(nn.Module):
         if gate_t.ndim != 2 or gate_t.shape[-1] != self.num_paths:
             raise ValueError(f"gate_t must have shape [B, {self.num_paths}]")
 
-        alpha = torch.exp(-F.softplus(self.log_decay))
+        gate_input = torch.clamp(gate_t, 0.0, 1.0)
+        if self.gate_temperature != 1.0:
+            gate_input = torch.sigmoid((gate_input - 0.5) / self.gate_temperature)
+        if self.gate_floor > 0.0:
+            gate_input = self.gate_floor + (1.0 - self.gate_floor) * gate_input
+        if self.gate_dropout > 0.0:
+            gate_input = F.dropout(gate_input, p=self.gate_dropout, training=self.training)
+            gate_input = torch.clamp(gate_input, 0.0, 1.0)
 
         q_state = torch.einsum("bn,prn->bpr", h, self.V)
         q_input = torch.einsum("bd,prd->bpr", x_t, self.E)
-        q_pre = F.silu(q_state + q_input)
-        effective_gate = gate_t
+        q_total = q_state + q_input
+        if self.path_bias is not None:
+            q_total = q_total + self.path_bias.unsqueeze(0)
+        q_pre = F.silu(q_total)
+        effective_gate = gate_input
         min_active = max(self.force_min_active_paths, self.topk_fallback)
         if min_active > 0:
             min_active = min(min_active, self.num_paths)
@@ -442,13 +510,32 @@ class LowRankPathSSMCore(nn.Module):
                 effective_gate = torch.where(needs_extra.unsqueeze(-1), torch.maximum(effective_gate, fallback), effective_gate)
         q = q_pre * effective_gate.unsqueeze(-1)
 
+        log_decay = self.log_decay.unsqueeze(0)
+        gate_decay_delta = None
+        if self.gate_decay_proj is not None:
+            gate_decay_delta = torch.tanh(effective_gate @ self.gate_decay_proj) * self.gate_decay_scale
+            log_decay = log_decay + gate_decay_delta
+        alpha = torch.exp(-F.softplus(log_decay))
+
         raw_delta = torch.einsum("bpr,pnr->bn", q, self.U)
         raw_delta = raw_delta / math.sqrt(max(1, self.num_paths * self.rank))
         delta = self.path_norm(raw_delta)
         delta = self.path_dropout(delta)
 
         base_update = alpha * h + self.B(x_t)
-        scaled_delta = self.gamma * self.path_residual_scale * delta
+        gate_gamma_delta = None
+        gamma_multiplier = None
+        if self.gate_gamma_proj is not None:
+            gate_gamma_delta = torch.tanh(effective_gate @ self.gate_gamma_proj) * self.gate_gamma_scale
+            gamma_multiplier = torch.clamp(
+                1.0 + gate_gamma_delta,
+                min=self.gate_gamma_min,
+                max=self.gate_gamma_max,
+            )
+        gamma_factor = self.gamma
+        if gamma_multiplier is not None:
+            gamma_factor = gamma_factor * gamma_multiplier
+        scaled_delta = gamma_factor * self.path_residual_scale * delta
         h_next = base_update + scaled_delta
         h_next = self.norm(h_next)
 
@@ -462,6 +549,7 @@ class LowRankPathSSMCore(nn.Module):
             base_update_norm = base_update.detach().norm(dim=-1)
             diagnostics = {
                 "alpha": alpha.detach(),
+                "alpha_mean": alpha.detach().mean(dim=-1),
                 "gamma": self.gamma.detach().expand(x_t.shape[0]),
                 "raw_delta_norm": raw_delta_norm,
                 "scaled_delta_norm": scaled_delta_norm,
@@ -470,7 +558,15 @@ class LowRankPathSSMCore(nn.Module):
                 "delta_norm": scaled_delta_norm,
                 "h_norm": h_next.detach().norm(dim=-1),
                 "active_paths": effective_gate.detach().sum(dim=-1),
+                "gate_input_mean": gate_input.detach().mean(dim=-1),
             }
+            if gate_decay_delta is not None:
+                diagnostics["gate_decay_delta_norm"] = gate_decay_delta.detach().norm(dim=-1)
+            if gate_gamma_delta is not None and gamma_multiplier is not None:
+                diagnostics["gate_gamma_delta_norm"] = gate_gamma_delta.detach().norm(dim=-1)
+                diagnostics["gate_gamma_multiplier_mean"] = gamma_multiplier.detach().mean(dim=-1)
+            if self.path_bias is not None:
+                diagnostics["path_bias_norm"] = self.path_bias.detach().norm().expand(x_t.shape[0])
             return y, h_next, diagnostics
         return y, h_next
 
@@ -499,6 +595,16 @@ class LowRankPathSSMModel(nn.Module):
         use_router_ema: bool = False,
         use_gpu_router: bool = False,
         reset_router_state_on_forward: bool = True,
+        gate_conditioned_decay: bool = False,
+        gate_decay_scale: float = 1.0,
+        gate_conditioned_gamma: bool = False,
+        gate_gamma_scale: float = 1.0,
+        gate_gamma_min: float = 0.1,
+        gate_gamma_max: float = 4.0,
+        gate_floor: float = 0.0,
+        gate_temperature: float = 1.0,
+        gate_dropout: float = 0.0,
+        use_path_bias: bool = False,
     ):
         super().__init__()
         self.input_dim = int(input_dim)
@@ -509,6 +615,16 @@ class LowRankPathSSMModel(nn.Module):
         self.use_router_ema = bool(use_router_ema)
         self.use_gpu_router = bool(use_gpu_router)
         self.reset_router_state_on_forward = bool(reset_router_state_on_forward)
+        self.gate_conditioned_decay = bool(gate_conditioned_decay)
+        self.gate_decay_scale = float(gate_decay_scale)
+        self.gate_conditioned_gamma = bool(gate_conditioned_gamma)
+        self.gate_gamma_scale = float(gate_gamma_scale)
+        self.gate_gamma_min = float(gate_gamma_min)
+        self.gate_gamma_max = float(gate_gamma_max)
+        self.gate_floor = float(gate_floor)
+        self.gate_temperature = float(gate_temperature)
+        self.gate_dropout = float(gate_dropout)
+        self.use_path_bias = bool(use_path_bias)
 
         if router is None:
             kwargs = dict(router_kwargs or {})
@@ -523,6 +639,16 @@ class LowRankPathSSMModel(nn.Module):
             num_paths=num_paths,
             rank=rank,
             output_dim=self.output_dim,
+            gate_conditioned_decay=self.gate_conditioned_decay,
+            gate_decay_scale=self.gate_decay_scale,
+            gate_conditioned_gamma=self.gate_conditioned_gamma,
+            gate_gamma_scale=self.gate_gamma_scale,
+            gate_gamma_min=self.gate_gamma_min,
+            gate_gamma_max=self.gate_gamma_max,
+            gate_floor=self.gate_floor,
+            gate_temperature=self.gate_temperature,
+            gate_dropout=self.gate_dropout,
+            use_path_bias=self.use_path_bias,
         )
 
     def _routers_for_batch(self, batch_size: int) -> List[FullSNNPathRouter]:
@@ -684,6 +810,16 @@ def save_ssm_checkpoint(model: nn.Module, path: str):
             "use_router_ema": model.use_router_ema,
             "use_gpu_router": model.use_gpu_router,
             "reset_router_state_on_forward": model.reset_router_state_on_forward,
+            "gate_conditioned_decay": model.gate_conditioned_decay,
+            "gate_decay_scale": model.gate_decay_scale,
+            "gate_conditioned_gamma": model.gate_conditioned_gamma,
+            "gate_gamma_scale": model.gate_gamma_scale,
+            "gate_gamma_min": model.gate_gamma_min,
+            "gate_gamma_max": model.gate_gamma_max,
+            "gate_floor": model.gate_floor,
+            "gate_temperature": model.gate_temperature,
+            "gate_dropout": model.gate_dropout,
+            "use_path_bias": model.use_path_bias,
             "ssm_core_state_dict": core.state_dict(),
         }
     elif isinstance(model, CachedGateLowRankPathSSM):
@@ -697,6 +833,16 @@ def save_ssm_checkpoint(model: nn.Module, path: str):
             "use_router_ema": False,
             "use_gpu_router": False,
             "reset_router_state_on_forward": True,
+            "gate_conditioned_decay": core.gate_conditioned_decay,
+            "gate_decay_scale": core.gate_decay_scale,
+            "gate_conditioned_gamma": core.gate_conditioned_gamma,
+            "gate_gamma_scale": core.gate_gamma_scale,
+            "gate_gamma_min": core.gate_gamma_min,
+            "gate_gamma_max": core.gate_gamma_max,
+            "gate_floor": core.gate_floor,
+            "gate_temperature": core.gate_temperature,
+            "gate_dropout": core.gate_dropout,
+            "use_path_bias": core.use_path_bias,
             "ssm_core_state_dict": core.state_dict(),
         }
     else:
@@ -726,6 +872,16 @@ def load_ssm_checkpoint(
         use_router_ema=bool(payload.get("use_router_ema", False)),
         use_gpu_router=bool(payload.get("use_gpu_router", False)),
         reset_router_state_on_forward=bool(payload.get("reset_router_state_on_forward", True)),
+        gate_conditioned_decay=bool(payload.get("gate_conditioned_decay", False)),
+        gate_decay_scale=float(payload.get("gate_decay_scale", 1.0)),
+        gate_conditioned_gamma=bool(payload.get("gate_conditioned_gamma", False)),
+        gate_gamma_scale=float(payload.get("gate_gamma_scale", 1.0)),
+        gate_gamma_min=float(payload.get("gate_gamma_min", 0.1)),
+        gate_gamma_max=float(payload.get("gate_gamma_max", 4.0)),
+        gate_floor=float(payload.get("gate_floor", 0.0)),
+        gate_temperature=float(payload.get("gate_temperature", 1.0)),
+        gate_dropout=float(payload.get("gate_dropout", 0.0)),
+        use_path_bias=bool(payload.get("use_path_bias", False)),
     )
     model.ssm_core.load_state_dict(payload["ssm_core_state_dict"])
     return model
@@ -867,6 +1023,16 @@ def build_low_rank_path_ssm_a(
     rank: int = 4,
     state_dim: int = 128,
     router_kwargs: Optional[Dict[str, Any]] = None,
+    gate_conditioned_decay: bool = False,
+    gate_decay_scale: float = 1.0,
+    gate_conditioned_gamma: bool = False,
+    gate_gamma_scale: float = 1.0,
+    gate_gamma_min: float = 0.1,
+    gate_gamma_max: float = 4.0,
+    gate_floor: float = 0.0,
+    gate_temperature: float = 1.0,
+    gate_dropout: float = 0.0,
+    use_path_bias: bool = False,
 ) -> LowRankPathSSMModel:
     return LowRankPathSSMModel(
         input_dim=input_dim,
@@ -875,6 +1041,16 @@ def build_low_rank_path_ssm_a(
         rank=rank,
         state_dim=state_dim,
         router_kwargs=router_kwargs,
+        gate_conditioned_decay=gate_conditioned_decay,
+        gate_decay_scale=gate_decay_scale,
+        gate_conditioned_gamma=gate_conditioned_gamma,
+        gate_gamma_scale=gate_gamma_scale,
+        gate_gamma_min=gate_gamma_min,
+        gate_gamma_max=gate_gamma_max,
+        gate_floor=gate_floor,
+        gate_temperature=gate_temperature,
+        gate_dropout=gate_dropout,
+        use_path_bias=use_path_bias,
     )
 
 

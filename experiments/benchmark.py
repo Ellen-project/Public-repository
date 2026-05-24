@@ -24,7 +24,13 @@ from models import model_factory
 from train_one import autocast_context, cuda_sync, level_path, peak_memory_mb
 
 
-LRP_MODELS = {"lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid"}
+LRP_MODELS = {
+    "lrp_ssm",
+    "lrp_ssm_fixed_calibrated",
+    "lrp_ssm_learned_router",
+    "lrp_ssm_hybrid",
+    "lrp_ssm_strong_path_bias_decay",
+}
 
 
 def default_device() -> str:

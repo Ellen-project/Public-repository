@@ -370,7 +370,13 @@ class GRULM(nn.Module):
 def model_factory(name: str, config: Dict[str, Any], vocab_size: int) -> nn.Module:
     cfg = dict(config)
     cfg["vocab_size"] = int(vocab_size)
-    if name in ("lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid"):
+    if name in (
+        "lrp_ssm",
+        "lrp_ssm_fixed_calibrated",
+        "lrp_ssm_learned_router",
+        "lrp_ssm_hybrid",
+        "lrp_ssm_strong_path_bias_decay",
+    ):
         return LRPSSMWrapper(**cfg)
     if name == "transformer":
         return TransformerLM(**cfg)

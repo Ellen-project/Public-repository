@@ -63,6 +63,7 @@ def model_kind(model: str) -> str:
         "lrp_ssm_fixed_calibrated": "Low-rank path SSM fixed calibrated",
         "lrp_ssm_learned_router": "Low-rank path SSM learned router",
         "lrp_ssm_hybrid": "Low-rank path SSM hybrid",
+        "lrp_ssm_strong_path_bias_decay": "Low-rank path SSM strong routed path-bias decay",
         "transformer": "Full causal attention",
         "linear_attention": "Kernelized linear attention",
         "local_attention": "Sliding-window attention",
@@ -348,7 +349,13 @@ def generate_report(args) -> Path:
         old_gate_meta = read_torch_metadata("experiments/c4_gate_cache_medium.pt")
         new_gate_meta = read_torch_metadata(experiment.get("gate_cache"))
         fix_rows = []
-        for name in ("lrp_ssm", "lrp_ssm_fixed_calibrated", "lrp_ssm_learned_router", "lrp_ssm_hybrid"):
+        for name in (
+            "lrp_ssm",
+            "lrp_ssm_fixed_calibrated",
+            "lrp_ssm_learned_router",
+            "lrp_ssm_hybrid",
+            "lrp_ssm_strong_path_bias_decay",
+        ):
             if name in models:
                 item = models[name]
                 fix_rows.append([
